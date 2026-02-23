@@ -1,0 +1,15 @@
+[package]
+name = "codexu_desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "1", features = ["dialog-open", "fs-read-dir", "path-all"] }
+core_agent = { path = "../../../crates/core_agent" }
+tools = { path = "../../../crates/tools" }
