@@ -15,3 +15,4 @@
 - [x] Documentação inicial (README, IMPLEMENT, SECURITY, PLAN).
 - [x] Script `scripts/setup_models.sh`.
 - [x] Validações locais básicas (`cargo fmt`, `cargo test`).
+- [x] Conexão UI ↔ backend Tauri para seleção real de workspace e chat com resposta mock.

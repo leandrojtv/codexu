@@ -19,27 +19,20 @@
         <div id="chatLog" class="scroll"></div>
         <form id="chatForm">
           <input id="chatInput" placeholder="Descreva sua tarefa..." />
-          <button type="submit">Enviar</button>
+          <button id="sendBtn" type="submit" disabled>Enviar</button>
         </form>
       </section>
 
       <section class="panel">
         <h2>Plan / Steps</h2>
         <ol id="planList">
-          <li>Entender pedido</li>
-          <li>Recuperar contexto</li>
-          <li>Propor diff</li>
-          <li>Validar</li>
+          <li>Aguardando mensagem...</li>
         </ol>
       </section>
 
       <section class="panel">
         <h2>Diff Viewer</h2>
-        <pre id="diffView" class="scroll">--- a/src/main.rs
-+++ b/src/main.rs
-@@ -1 +1 @@
-- old line
-+ new line</pre>
+        <pre id="diffView" class="scroll">(sem diff ainda)</pre>
         <div class="actions">
           <button>Apply</button>
           <button>Reject</button>
@@ -48,8 +41,7 @@
 
       <section class="panel">
         <h2>Log / Console</h2>
-        <pre id="logView" class="scroll">[init] app inicializado
-[security] modo diff-first ativo (M1 mock)</pre>
+        <pre id="logView" class="scroll">[init] app inicializado</pre>
       </section>
     </main>
 

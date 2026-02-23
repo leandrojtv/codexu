@@ -47,6 +47,18 @@ header {
   flex: 1;
 }
 
+.msg {
+  margin: 6px 0;
+}
+
+.msg.user {
+  color: #79c0ff;
+}
+
+.msg.assistant {
+  color: #a5d6a7;
+}
+
 button {
   background: #238636;
   border: none;
@@ -54,4 +66,9 @@ button {
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
