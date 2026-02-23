@@ -138,6 +138,8 @@ Se aparecer erro de macro do Tauri reclamando de `icons/icon.png` inexistente, n
 
 Neste projeto, o arquivo é gerado automaticamente no build por `apps/desktop/src-tauri/build.rs` antes do `tauri_build::build()`.
 
+O caminho `apps/desktop/src-tauri/icons/icon.png` está no `.gitignore` para evitar que binários entrem na branch por acidente.
+
 Se necessário, rode novamente:
 
 ```bash
