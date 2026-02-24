@@ -159,10 +159,9 @@ impl LlmProvider for LocalLlamaCppProvider {
                 "-ngl",
                 &self.config.gpu_layers.to_string(),
                 "--no-display-prompt",
-                "--simple-io",
             ])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .spawn()
             .with_context(|| format!("falha ao executar {bin}. Instale/compile o llama.cpp"))?;
 
@@ -189,7 +188,13 @@ impl LlmProvider for LocalLlamaCppProvider {
             .with_context(|| "falha ao coletar saída do llama.cpp".to_string())?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stderr.is_empty() {
+                bail!(
+                    "llama.cpp retornou erro sem stderr (status: {})",
+                    output.status
+                )
+            }
             bail!("llama.cpp retornou erro: {stderr}")
         }
 
