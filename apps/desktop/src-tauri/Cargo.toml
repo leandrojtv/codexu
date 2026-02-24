@@ -13,4 +13,5 @@ serde_json.workspace = true
 tauri = { version = "1", features = ["dialog-open", "fs-read-dir", "path-all"] }
 core_agent = { path = "../../../crates/core_agent" }
 tools = { path = "../../../crates/tools" }
+llm_provider = { path = "../../../crates/llm_provider" }
 tokio.workspace = true
