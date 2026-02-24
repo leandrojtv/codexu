@@ -162,14 +162,41 @@ fn detect_first_gguf_in_default_models_dir() -> Option<PathBuf> {
     ggufs.into_iter().next()
 }
 
+fn resolve_model_path() -> (PathBuf, Vec<String>) {
+    let mut notes = Vec::new();
+
+    if let Some(env_model) = read_env_path("MODEL_GGUF_PATH") {
+        if env_model.exists() {
+            notes.push(format!(
+                "MODEL_GGUF_PATH detectado e válido: {}",
+                env_model.display()
+            ));
+            return (env_model, notes);
+        }
+
+        notes.push(format!(
+            "MODEL_GGUF_PATH detectado, mas arquivo não existe: {}",
+            env_model.display()
+        ));
+    } else {
+        notes.push("MODEL_GGUF_PATH não definido no processo".to_string());
+    }
+
+    if let Some(auto) = detect_first_gguf_in_default_models_dir() {
+        notes.push(format!(
+            "fallback automático: usando GGUF encontrado em ~/.codexu/models -> {}",
+            auto.display()
+        ));
+        return (auto, notes);
+    }
+
+    notes.push("fallback automático não encontrou nenhum .gguf em ~/.codexu/models".to_string());
+    (LlmConfig::default().model_path, notes)
+}
+
 fn build_llm_config_from_env() -> LlmConfig {
     let mut cfg = LlmConfig::default();
-
-    if let Some(p) = read_env_path("MODEL_GGUF_PATH") {
-        cfg.model_path = p;
-    } else if let Some(auto) = detect_first_gguf_in_default_models_dir() {
-        cfg.model_path = auto;
-    }
+    cfg.model_path = resolve_model_path().0;
 
     if let Some(p) = read_env_path("LLAMA_CPP_BINARY") {
         cfg.binary_path = Some(p);
@@ -202,11 +229,8 @@ fn validate_llama_setup() -> LlamaSetupStatus {
     let mut details = Vec::new();
     let mut ok = true;
 
-    match read_env_path("MODEL_GGUF_PATH") {
-        Some(path) => details.push(format!("MODEL_GGUF_PATH detectado: {}", path.display())),
-        None => details.push(
-            "MODEL_GGUF_PATH não definido no processo; usando fallback automático".to_string(),
-        ),
+    for note in resolve_model_path().1 {
+        details.push(note);
     }
 
     match read_env_path("LLAMA_CPP_BINARY") {
