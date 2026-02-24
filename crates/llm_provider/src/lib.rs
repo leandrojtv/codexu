@@ -81,7 +81,7 @@ impl LocalLlamaCppProvider {
         if let Some(path) = &self.config.binary_path {
             return path.display().to_string();
         }
-        std::env::var("LLAMA_CPP_BINARY").unwrap_or_else(|_| "llama-cli".to_string())
+        "llama-cli".to_string()
     }
 }
 

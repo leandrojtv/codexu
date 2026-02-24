@@ -194,14 +194,34 @@ fn resolve_model_path() -> (PathBuf, Vec<String>) {
     (LlmConfig::default().model_path, notes)
 }
 
+fn resolve_binary_path() -> (Option<PathBuf>, Vec<String>) {
+    let mut notes = Vec::new();
+
+    if let Some(env_bin) = read_env_path("LLAMA_CPP_BINARY") {
+        if env_bin.exists() {
+            notes.push(format!(
+                "LLAMA_CPP_BINARY detectado e válido: {}",
+                env_bin.display()
+            ));
+            return (Some(env_bin), notes);
+        }
+
+        notes.push(format!(
+            "LLAMA_CPP_BINARY detectado, mas arquivo não existe: {}",
+            env_bin.display()
+        ));
+        notes.push("fallback automático: usando llama-cli via PATH".to_string());
+        return (None, notes);
+    }
+
+    notes.push("LLAMA_CPP_BINARY não definido no processo; usando llama-cli via PATH".to_string());
+    (None, notes)
+}
+
 fn build_llm_config_from_env() -> LlmConfig {
     let mut cfg = LlmConfig::default();
     cfg.model_path = resolve_model_path().0;
-
-    if let Some(p) = read_env_path("LLAMA_CPP_BINARY") {
-        cfg.binary_path = Some(p);
-    }
-
+    cfg.binary_path = resolve_binary_path().0;
     cfg
 }
 
@@ -233,11 +253,8 @@ fn validate_llama_setup() -> LlamaSetupStatus {
         details.push(note);
     }
 
-    match read_env_path("LLAMA_CPP_BINARY") {
-        Some(path) => details.push(format!("LLAMA_CPP_BINARY detectado: {}", path.display())),
-        None => details.push(
-            "LLAMA_CPP_BINARY não definido no processo; usando llama-cli via PATH".to_string(),
-        ),
+    for note in resolve_binary_path().1 {
+        details.push(note);
     }
 
     match provider.validate_config() {
