@@ -21,7 +21,12 @@ function appendLog(message) {
 }
 
 function getTauriInvoke() {
-  return window.__TAURI__?.tauri?.invoke || window.__TAURI__?.invoke || null;
+  return (
+    window.__TAURI__?.tauri?.invoke ||
+    window.__TAURI__?.invoke ||
+    window.__TAURI_INTERNALS__?.invoke ||
+    null
+  );
 }
 
 function isTauriRuntime() {
@@ -67,10 +72,11 @@ async function detectRuntimeMode() {
   if (!isTauriRuntime()) {
     setRuntimeBadge("runtime: browser fallback");
     setRuntimeHelp(
-      "Você está no modo navegador. Para selecionar workspace nativo e usar backend real, execute: cargo run -p codexu_desktop",
+      "Você está no modo navegador/fallback. Se abriu via cargo run e mesmo assim caiu aqui, faça `cargo clean && cargo run -p codexu_desktop` e confira `withGlobalTauri: true` no tauri.conf.",
       true,
     );
     appendLog("modo navegador detectado: backend Tauri não disponível");
+    appendLog(`debug runtime: __TAURI__=${Boolean(window.__TAURI__)}, __TAURI_IPC__=${Boolean(window.__TAURI_IPC__)}`);
     return;
   }
 

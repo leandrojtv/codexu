@@ -177,3 +177,20 @@ Seu ambiente bloqueou acesso ao `crates.io`. Sem isso, `cargo test`/`cargo run` 
 
 ### Logs `NSSpellServer ...` no macOS
 São logs do corretor ortográfico do sistema, não erro funcional do app.
+
+
+### `cargo run -p codexu_desktop` mas ainda aparece `runtime: browser fallback`
+Isso normalmente indica que o frontend não recebeu o objeto global do Tauri.
+
+Checklist:
+1. Verifique em `apps/desktop/src-tauri/tauri.conf.json` se `build.withGlobalTauri` está `true`.
+2. Rode limpeza e execute novamente:
+
+```bash
+cargo clean
+cargo run -p codexu_desktop
+```
+
+3. No Log / Console do app, veja a linha de debug:
+   - `__TAURI__=true` esperado no runtime desktop.
+
