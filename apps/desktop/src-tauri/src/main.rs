@@ -194,6 +194,29 @@ fn resolve_model_path() -> (PathBuf, Vec<String>) {
     (LlmConfig::default().model_path, notes)
 }
 
+fn candidate_binaries_from_env_path(path: &PathBuf) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|w| w[0] == "llama.cpp" && w[1] == "llama.cpp")
+    {
+        let deduped = path
+            .to_string_lossy()
+            .replace("/llama.cpp/llama.cpp/", "/llama.cpp/");
+        candidates.push(PathBuf::from(deduped));
+    }
+
+    if let Some(parent) = path.parent() {
+        candidates.push(parent.join("llama-cli"));
+    }
+
+    candidates
+}
+
 fn resolve_binary_path() -> (Option<PathBuf>, Vec<String>) {
     let mut notes = Vec::new();
 
@@ -210,6 +233,17 @@ fn resolve_binary_path() -> (Option<PathBuf>, Vec<String>) {
             "LLAMA_CPP_BINARY detectado, mas arquivo não existe: {}",
             env_bin.display()
         ));
+
+        for candidate in candidate_binaries_from_env_path(&env_bin) {
+            if candidate.exists() {
+                notes.push(format!(
+                    "fallback automático: binário corrigido detectado -> {}",
+                    candidate.display()
+                ));
+                return (Some(candidate), notes);
+            }
+        }
+
         notes.push("fallback automático: usando llama-cli via PATH".to_string());
         return (None, notes);
     }
