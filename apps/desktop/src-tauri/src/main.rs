@@ -99,32 +99,80 @@ fn derive_plan_steps(message: &str) -> Vec<String> {
     steps
 }
 
+fn normalize_env_value(raw: &str) -> Option<String> {
+    let mut value = raw.trim().to_string();
+    if value.is_empty() {
+        return None;
+    }
+
+    if (value.starts_with('"') && value.ends_with('"'))
+        || (value.starts_with('\'') && value.ends_with('\''))
+    {
+        value = value[1..value.len().saturating_sub(1)].trim().to_string();
+    }
+
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn expand_tilde_path(value: &str) -> PathBuf {
+    if value == "~" {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home);
+        }
+    }
+
+    if let Some(rest) = value.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+
+    PathBuf::from(value)
+}
+
+fn read_env_path(key: &str) -> Option<PathBuf> {
+    let raw = std::env::var(key).ok()?;
+    let normalized = normalize_env_value(&raw)?;
+    Some(expand_tilde_path(&normalized))
+}
+
 fn detect_first_gguf_in_default_models_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let models_dir = PathBuf::from(home).join(".codexu").join("models");
     let entries = fs::read_dir(models_dir).ok()?;
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
-            return Some(path);
-        }
-    }
+    let mut ggufs = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("gguf"))
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
 
-    None
+    ggufs.sort();
+    ggufs.into_iter().next()
 }
 
 fn build_llm_config_from_env() -> LlmConfig {
     let mut cfg = LlmConfig::default();
 
-    if let Ok(p) = std::env::var("MODEL_GGUF_PATH") {
-        cfg.model_path = PathBuf::from(p);
+    if let Some(p) = read_env_path("MODEL_GGUF_PATH") {
+        cfg.model_path = p;
     } else if let Some(auto) = detect_first_gguf_in_default_models_dir() {
         cfg.model_path = auto;
     }
 
-    if let Ok(p) = std::env::var("LLAMA_CPP_BINARY") {
-        cfg.binary_path = Some(PathBuf::from(p));
+    if let Some(p) = read_env_path("LLAMA_CPP_BINARY") {
+        cfg.binary_path = Some(p);
     }
 
     cfg
@@ -153,6 +201,20 @@ fn validate_llama_setup() -> LlamaSetupStatus {
 
     let mut details = Vec::new();
     let mut ok = true;
+
+    match read_env_path("MODEL_GGUF_PATH") {
+        Some(path) => details.push(format!("MODEL_GGUF_PATH detectado: {}", path.display())),
+        None => details.push(
+            "MODEL_GGUF_PATH não definido no processo; usando fallback automático".to_string(),
+        ),
+    }
+
+    match read_env_path("LLAMA_CPP_BINARY") {
+        Some(path) => details.push(format!("LLAMA_CPP_BINARY detectado: {}", path.display())),
+        None => details.push(
+            "LLAMA_CPP_BINARY não definido no processo; usando llama-cli via PATH".to_string(),
+        ),
+    }
 
     match provider.validate_config() {
         Ok(()) => details.push(format!(
