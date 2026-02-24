@@ -4,7 +4,7 @@
 
 - [x] **M1**: Scaffolding do monorepo + app Tauri rodando com UI mínima (chat, plan/steps, diff, log, seleção de workspace).
 - [x] **M2**: Tools com guardrails completos (workspace sandbox, diff-first apply, backup branch, shell allowlist + confirmação).
-- [ ] **M3**: Indexer SQLite FTS5 + ripgrep + index incremental.
+- [x] **M3**: Indexer SQLite FTS5 + ripgrep + index incremental.
 - [ ] **M4**: Provider local llama.cpp (Metal, streaming) + setup de modelo GGUF.
 - [ ] **M5**: Loop do agente (plan -> retrieve -> propose diff -> apply -> validate) com demo.
 - [ ] **M6**: Provider remoto opcional (Azure-like) com UI/config.
@@ -23,3 +23,10 @@
 - [x] `shell_tool` com allowlist e confirmação obrigatória fora da lista.
 - [x] `git_tool` com status/diff e criação de branch de backup `codexu/<timestamp>`.
 - [x] Testes unitários básicos para guardrails críticos em `tools`.
+
+
+## Checklist M3
+- [x] `crates/indexer` com SQLite + FTS5 e schema inicial (`files` + `docs_fts`).
+- [x] Indexação incremental por hash SHA-256 de conteúdo.
+- [x] Busca FTS com snippet e limite de resultados.
+- [x] `search_tool` com `ripgrep` real e busca no índice SQLite.

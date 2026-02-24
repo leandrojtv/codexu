@@ -5,7 +5,8 @@ Aplicativo desktop local-first inspirado em agentes de engenharia (Codex/Claude 
 ## Status
 - ✅ **M1 concluído**: scaffolding, docs e UI mínima.
 - ✅ **M2 concluído**: guardrails base nas tools (workspace sandbox, diff-first, backup branch, shell policy).
-- 🚧 **Próximo**: M3 (indexer SQLite FTS + ripgrep).
+- ✅ **M3 concluído**: indexer SQLite FTS5 + ripgrep + index incremental.
+- 🚧 **Próximo**: M4 (provider local llama.cpp + streaming).
 
 ## O que existe hoje (M1/M2)
 - Monorepo Rust com crates de agente, tools, indexador e provider.
