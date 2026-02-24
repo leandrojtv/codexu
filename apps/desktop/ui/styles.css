@@ -11,6 +11,23 @@ header {
   gap: 12px;
   align-items: center;
   border-bottom: 1px solid #30363d;
+  flex-wrap: wrap;
+}
+
+.runtime-help {
+  width: 100%;
+  border: 1px solid #2f4f77;
+  background: #0f2238;
+  color: #d6e8ff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.runtime-help.warning {
+  border-color: #8b6a11;
+  background: #302408;
+  color: #f7ddb3;
 }
 
 .grid {

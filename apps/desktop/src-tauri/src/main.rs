@@ -82,7 +82,7 @@ fn get_app_mode(app: AppHandle) -> AppMode {
     AppMode {
         runtime: "tauri".to_string(),
         version: app.package_info().version.to_string(),
-        milestone: "M2".to_string(),
+        milestone: "M3".to_string(),
     }
 }
 

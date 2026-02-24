@@ -1,180 +1,127 @@
 # Codexu (macOS Apple Silicon)
 
-Aplicativo desktop local-first inspirado em agentes de engenharia (Codex/Claude Code), usando **Tauri + Rust**.
+App desktop local-first (Tauri + Rust) para fluxo estilo agente de código.
 
-## Status
-- ✅ **M1 concluído**: scaffolding, docs e UI mínima.
-- ✅ **M2 concluído**: guardrails base nas tools (workspace sandbox, diff-first, backup branch, shell policy).
-- ✅ **M3 concluído**: indexer SQLite FTS5 + ripgrep + index incremental.
-- 🚧 **Próximo**: M4 (provider local llama.cpp + streaming).
-
-## O que existe hoje (M1/M2)
-- Monorepo Rust com crates de agente, tools, indexador e provider.
-- App desktop Tauri com UI mínima contendo:
-  - Badge de runtime no topo (ex.: `runtime: tauri v0.1.0`) para confirmar desktop real vs fallback navegador
-  - Chat
-  - Plan/Steps
-  - Diff Viewer (Apply/Reject)
-  - Log/Console
-  - Seleção inicial de workspace
-
-## Requisitos (macOS arm64)
-
-### 1) Ferramentas base
-- macOS Apple Silicon (arm64)
-- Xcode Command Line Tools
-- Rust (stable) + Cargo
-- Node.js (recomendado para evolução da UI; no M1 a UI é estática)
-
-### 2) Pré-requisitos Tauri (macOS)
-Instale os requisitos oficiais do Tauri para macOS. Em geral:
-- Toolchain Rust
-- Xcode/SDKs
-
-Referência: documentação oficial do Tauri para setup em macOS.
+## Status atual
+- ✅ M1: app desktop mínimo + chat/painéis.
+- ✅ M2: guardrails de tools (sandbox, diff-first, shell policy, backup branch).
+- ✅ M3: indexador SQLite FTS5 + busca com ripgrep.
+- 🚧 Próximo: M4 (provider local llama.cpp + streaming).
 
 ---
 
-## Como compilar e rodar
+## TL;DR (passo a passo exato para funcionar)
 
-### Passo a passo rápido
+> Se você é novo em desktop dev, siga **nesta ordem**.
 
-1. Clone o repositório e entre na pasta:
+1. Clone o repo e entre na pasta:
 
 ```bash
-git clone <seu-repo>
+git clone <url-do-seu-repo>
 cd codexu
 ```
 
-2. Formate o código:
+2. Instale pré-requisitos no macOS:
+- Xcode Command Line Tools
+- Rust stable (cargo)
+- Dependências Tauri para macOS
+
+3. Rode validações:
 
 ```bash
 cargo fmt --all
-```
-
-3. Rode testes do workspace:
-
-```bash
 cargo test --workspace
 ```
 
-4. Rode o app desktop em modo desenvolvimento:
+4. Rode o app desktop real (não navegador):
 
 ```bash
 cargo run -p codexu_desktop
 ```
 
-> Se o seu ambiente estiver sem acesso ao `crates.io`, o `cargo test` e o `cargo run` podem falhar no download de dependências.
+5. Confirme no topo do app:
+- **runtime: tauri v...**
+- título **Codexu (M3)**
 
-### Build de release (app .app no macOS)
+Se aparecer `runtime: browser fallback`, você não está no app desktop real.
+
+---
+
+## Como saber se está no modo certo
+
+### ✅ Modo correto (desktop Tauri)
+- Badge no topo: `runtime: tauri v...`
+- Seleção de workspace abre diálogo nativo do macOS.
+
+### ⚠️ Modo incorreto (fallback navegador)
+- Badge no topo: `runtime: browser fallback`
+- Log mostra: `modo navegador detectado: backend Tauri não disponível`
+- Nesse modo, o acesso a pastas é limitado pelo browser.
+
+---
+
+## Problema: “não consigo selecionar workspace”
+
+Se você clica em **Selecionar workspace** e nada acontece, verifique:
+
+1. Você está em `runtime: tauri`? Se não, rode:
 
 ```bash
-cargo build -p codexu_desktop --release
+cargo run -p codexu_desktop
 ```
 
-Para empacotamento Tauri em `.app`, use o fluxo Tauri conforme os pré-requisitos do seu ambiente estiverem completos.
+2. Permissões no macOS:
+- System Settings → Privacy & Security → Files and Folders
+- Dê permissão ao app/terminal para acessar pastas.
+
+3. Tente escolher uma pasta simples (ex.: `~/Documents/teste-codexu`).
+
+4. Veja o painel **Log / Console** para erro detalhado.
 
 ---
 
-## Como usar o app (M1)
+## O que é GGUF (explicação simples)
 
-Ao abrir o app:
+- **GGUF** é o formato de arquivo do modelo LLM usado pelo `llama.cpp`.
+- Pense nele como “o arquivo de pesos” do modelo (ex.: Code Llama 7B quantizado).
+- O app **não** commita esse arquivo no git.
 
-1. Clique em **Selecionar workspace**.
-2. Informe o caminho absoluto de uma pasta local (mock inicial no M1).
-3. Use o campo de **Chat** para registrar o pedido.
-4. Acompanhe os passos no painel **Plan / Steps**.
-5. Veja alterações propostas no **Diff Viewer** (botões Apply/Reject estão presentes como UI inicial).
-6. Verifique eventos em **Log / Console**.
-
-> Observação: no M1, os fluxos de aplicação real de patch/guardrails completos ainda serão concluídos no M2.
-
----
-
-## Modelo GGUF (preparação)
-
-Os pesos **não** ficam no repositório.
-
-Crie a pasta de modelos:
+### Preparar pasta de modelos
 
 ```bash
 bash scripts/setup_models.sh
 ```
 
-Ou defina um diretório customizado:
+Ou custom:
 
 ```bash
 bash scripts/setup_models.sh /caminho/para/modelos
 ```
 
-Depois:
-1. Baixe um Code Llama 7B GGUF quantizado (`Q4_K_M` ou `Q5_K_M`) de fonte confiável.
-2. Coloque o `.gguf` no diretório criado.
-3. A integração efetiva com `llama.cpp` será habilitada no **M4**.
+Depois coloque seu arquivo `.gguf` nessa pasta.
 
 ---
 
-## Estrutura do projeto
-- O ícone do app para identificação na barra de tarefas/menu dock é `apps/desktop/src-tauri/icons/icon.png` (gerado automaticamente no build).
-- `crates/core_agent`: planner/executor/validator/reporter
-- `crates/tools`: file/search/git/shell tools
-- `crates/indexer`: indexador (FTS em M3)
-- `crates/llm_provider`: trait de provider + stubs local/remoto
-- `apps/desktop`: app Tauri
-
-## Segurança e guardrails
-As decisões de segurança estão em `SECURITY.md`:
-- workspace sandbox
-- allowlist de terminal + confirmação
-- diff-first
-- backup branch temporária antes de aplicar mudanças
-
-## Roadmap
-Consulte `PLAN.md` para milestones M1 → M6 e progresso.
+## Estrutura principal
+- `apps/desktop`: app Tauri (UI + backend local)
+- `crates/tools`: tools com guardrails (M2)
+- `crates/indexer`: indexação SQLite FTS5 (M3)
+- `crates/core_agent`: planner/executor/validator/reporter (base)
+- `crates/llm_provider`: providers local/remoto (stub por enquanto)
 
 ---
 
+## M3 (indexação e busca)
+- Indexador incremental por hash SHA-256.
+- FTS5 em SQLite (`files` + `docs_fts`).
+- Busca rápida via `ripgrep` (`rg`) e busca por índice SQLite.
 
-## Troubleshooting
+---
 
-### Erro no `cargo test --workspace` com `tauri::generate_context!()`
-Se aparecer erro de macro do Tauri reclamando de `icons/icon.png` inexistente, não versione binário manualmente.
+## Troubleshooting rápido
 
-Neste projeto, o arquivo é gerado automaticamente no build por `apps/desktop/src-tauri/build.rs` antes do `tauri_build::build()`.
+### `CONNECT tunnel failed, response 403` no cargo
+Seu ambiente bloqueou acesso ao `crates.io`. Sem isso, `cargo test`/`cargo run` podem falhar.
 
-O caminho `apps/desktop/src-tauri/icons/icon.png` está no `.gitignore` para evitar que binários entrem na branch por acidente.
-
-Se necessário, rode novamente:
-
-```bash
-cargo clean
-cargo test --workspace
-```
-
-
-### Mensagem `Tauri runtime indisponível` no Log / Console
-Isso ocorre quando a UI é aberta fora do runtime Tauri (por exemplo, via `http.server`).
-
-- Em modo navegador, o app usa fallback limitado (sem comandos backend reais). A seleção tenta `showDirectoryPicker` e depois fallback adicional (inclusive entrada manual) para não ficar travada em "Nenhum workspace selecionado".
-- Para fluxo completo (seletor nativo + chat backend), execute pelo app Tauri:
-
-```bash
-cargo run -p codexu_desktop
-```
-
-### Cliquei em "Selecionar workspace" e nada acontece
-Em alguns ambientes, o fluxo assíncrono do seletor pode não retornar corretamente.
-
-A versão atual usa seletor nativo em modo bloqueante no backend Tauri para garantir que a pasta selecionada seja retornada para a UI.
-
-Se ainda não abrir/retornar seleção:
-- Execute o app via Tauri (`cargo run -p codexu_desktop`), não via navegador puro.
-- Verifique permissões do macOS para janelas/dialogs do app.
-- Confira o painel **Log / Console** para mensagens de erro.
-
-
-### Logs `NSSpellServer ... timed out/succeeded` no macOS
-Essas mensagens vêm do serviço de correção ortográfica do macOS/WebKit e **não** indicam falha funcional do app.
-
-Para reduzir ruído no campo de chat, o input foi configurado com `spellcheck="false"` e `autocorrect="off"`.
-
+### Logs `NSSpellServer ...` no macOS
+São logs do corretor ortográfico do sistema, não erro funcional do app.

@@ -9,6 +9,7 @@ const logView = document.getElementById("logView");
 const sendBtn = document.getElementById("sendBtn");
 const runtimeBadge = document.getElementById("runtimeBadge");
 const appTitle = document.getElementById("appTitle");
+const runtimeHelp = document.getElementById("runtimeHelp");
 
 let workspacePath = null;
 
@@ -57,9 +58,18 @@ function setRuntimeBadge(text) {
   runtimeBadge.textContent = text;
 }
 
+function setRuntimeHelp(text, isWarning = false) {
+  runtimeHelp.textContent = text;
+  runtimeHelp.classList.toggle("warning", isWarning);
+}
+
 async function detectRuntimeMode() {
   if (!isTauriRuntime()) {
     setRuntimeBadge("runtime: browser fallback");
+    setRuntimeHelp(
+      "Você está no modo navegador. Para selecionar workspace nativo e usar backend real, execute: cargo run -p codexu_desktop",
+      true,
+    );
     appendLog("modo navegador detectado: backend Tauri não disponível");
     return;
   }
@@ -70,9 +80,17 @@ async function detectRuntimeMode() {
     const version = mode?.version || "dev";
     appTitle.textContent = `Codexu (${milestone})`;
     setRuntimeBadge(`runtime: ${mode.runtime} v${version}`);
+    setRuntimeHelp(
+      "Modo desktop Tauri ativo. Se o seletor não abrir, verifique permissões de Arquivos e Pastas no macOS.",
+      false,
+    );
     appendLog(`runtime confirmado: ${mode.runtime} (${milestone}) v${version}`);
   } catch (error) {
     setRuntimeBadge("runtime: tauri (erro de handshake)");
+    setRuntimeHelp(
+      "Não foi possível confirmar modo Tauri. Reinicie com: cargo run -p codexu_desktop",
+      true,
+    );
     appendLog(`erro ao validar runtime Tauri: ${error}`);
   }
 }
@@ -155,7 +173,8 @@ workspaceBtn.addEventListener("click", async () => {
 
     if (!browserPath) {
       const manual = window.prompt(
-        "Não foi possível obter a pasta automaticamente. Informe um nome/caminho para o workspace:",
+        "No navegador não é possível obter caminho absoluto com confiabilidade. Informe manualmente o nome/caminho do workspace:",
+        "workspace-local",
       );
       if (manual?.trim()) {
         browserPath = `(browser-manual) ${manual.trim()}`;
