@@ -169,3 +169,9 @@ Se ainda não abrir/retornar seleção:
 - Verifique permissões do macOS para janelas/dialogs do app.
 - Confira o painel **Log / Console** para mensagens de erro.
 
+
+### Logs `NSSpellServer ... timed out/succeeded` no macOS
+Essas mensagens vêm do serviço de correção ortográfica do macOS/WebKit e **não** indicam falha funcional do app.
+
+Para reduzir ruído no campo de chat, o input foi configurado com `spellcheck="false"` e `autocorrect="off"`.
+
