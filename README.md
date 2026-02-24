@@ -112,6 +112,7 @@ Depois:
 ---
 
 ## Estrutura do projeto
+- O ícone do app para identificação na barra de tarefas/menu dock é `apps/desktop/src-tauri/icons/icon.png` (gerado automaticamente no build).
 - `crates/core_agent`: planner/executor/validator/reporter
 - `crates/tools`: file/search/git/shell tools
 - `crates/indexer`: indexador (FTS em M3)

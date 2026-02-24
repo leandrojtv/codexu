@@ -25,9 +25,13 @@
     },
     "bundle": {
       "active": true,
-      "targets": ["app"],
+      "targets": [
+        "app"
+      ],
       "identifier": "com.codexu.desktop",
-      "icon": []
+      "icon": [
+        "icons/icon.png"
+      ]
     },
     "windows": [
       {
