@@ -5,7 +5,7 @@
 - [x] **M1**: Scaffolding do monorepo + app Tauri rodando com UI mínima (chat, plan/steps, diff, log, seleção de workspace).
 - [x] **M2**: Tools com guardrails completos (workspace sandbox, diff-first apply, backup branch, shell allowlist + confirmação).
 - [x] **M3**: Indexer SQLite FTS5 + ripgrep + index incremental.
-- [ ] **M4**: Provider local llama.cpp (Metal, streaming) + setup de modelo GGUF.
+- [x] **M4**: Provider local llama.cpp (Metal, streaming) + setup de modelo GGUF.
 - [ ] **M5**: Loop do agente (plan -> retrieve -> propose diff -> apply -> validate) com demo.
 - [ ] **M6**: Provider remoto opcional (Azure-like) com UI/config.
 
@@ -30,3 +30,10 @@
 - [x] Indexação incremental por hash SHA-256 de conteúdo.
 - [x] Busca FTS com snippet e limite de resultados.
 - [x] `search_tool` com `ripgrep` real e busca no índice SQLite.
+
+
+## Checklist M4
+- [x] `crates/llm_provider` com `LlmConfig` e validação de GGUF.
+- [x] `LocalLlamaCppProvider` executando `llama-cli` com parâmetros (contexto, temp, top_p, max_tokens, gpu layers).
+- [x] Streaming MVP via chunks por linha da saída do `llama.cpp`.
+- [x] Recomendação de modelo para Mac 18GB (7B Q4_K_M / Q5_K_M).

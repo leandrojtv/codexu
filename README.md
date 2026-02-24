@@ -6,7 +6,8 @@ App desktop local-first (Tauri + Rust) para fluxo estilo agente de código.
 - ✅ M1: app desktop mínimo + chat/painéis.
 - ✅ M2: guardrails de tools (sandbox, diff-first, shell policy, backup branch).
 - ✅ M3: indexador SQLite FTS5 + busca com ripgrep.
-- 🚧 Próximo: M4 (provider local llama.cpp + streaming).
+- ✅ M4: provider local llama.cpp (Metal) + streaming MVP.
+- 🚧 Próximo: M5 (loop do agente fim-a-fim).
 
 ---
 
@@ -41,7 +42,7 @@ cargo run -p codexu_desktop
 
 5. Confirme no topo do app:
 - **runtime: tauri v...**
-- título **Codexu (M3)**
+- título **Codexu (M4)**
 
 Se aparecer `runtime: browser fallback`, você não está no app desktop real.
 
@@ -101,6 +102,57 @@ bash scripts/setup_models.sh /caminho/para/modelos
 Depois coloque seu arquivo `.gguf` nessa pasta.
 
 ---
+
+
+## M4: LLM local com llama.cpp (Metal)
+
+### O que foi implementado no código
+- `crates/llm_provider::LlmConfig` com parâmetros do modelo.
+- `LocalLlamaCppProvider` que executa `llama-cli` localmente.
+- Validação de `model_path` `.gguf` e existência do arquivo.
+- Streaming MVP (chunks por linha de saída).
+
+### Passo a passo exato (macOS Apple Silicon)
+
+1. Preparar diretório de modelos:
+
+```bash
+bash scripts/setup_models.sh
+```
+
+2. Colocar o arquivo GGUF na pasta criada (exemplo):
+
+```bash
+$HOME/.codexu/models/code-llama-7b-q4_k_m.gguf
+```
+
+3. Instalar/compilar o llama.cpp com Metal:
+
+```bash
+git clone https://github.com/ggerganov/llama.cpp.git
+cd llama.cpp
+cmake -B build -DGGML_METAL=ON
+cmake --build build -j
+```
+
+4. Definir binário para o app (se necessário):
+
+```bash
+export LLAMA_CPP_BINARY="/caminho/llama.cpp/build/bin/llama-cli"
+```
+
+5. Rodar o app:
+
+```bash
+cd /caminho/do/codexu
+cargo run -p codexu_desktop
+```
+
+### Recomendação para Mac com 18GB RAM
+- Preferir `Code Llama 7B` quantizado:
+  - `Q4_K_M` (default recomendado)
+  - `Q5_K_M` (opcional)
+
 
 ## Estrutura principal
 - `apps/desktop`: app Tauri (UI + backend local)

@@ -1,17 +1,129 @@
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub trait LlmProvider {
     fn generate_stream(&self, prompt: &str) -> Result<Vec<String>>;
 }
 
-#[derive(Default)]
-pub struct LocalLlamaCppProvider;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmConfig {
+    pub model_path: PathBuf,
+    pub binary_path: Option<PathBuf>,
+    pub context_len: usize,
+    pub max_tokens: usize,
+    pub temperature: f32,
+    pub top_p: f32,
+    pub gpu_layers: usize,
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            model_path: PathBuf::from("$HOME/.codexu/models/code-llama-7b-q4_k_m.gguf"),
+            binary_path: None,
+            context_len: 4096,
+            max_tokens: 512,
+            temperature: 0.2,
+            top_p: 0.95,
+            gpu_layers: 99,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalLlamaCppProvider {
+    pub config: LlmConfig,
+}
+
+impl LocalLlamaCppProvider {
+    pub fn new(config: LlmConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn validate_config(&self) -> Result<()> {
+        let model = &self.config.model_path;
+        if model.to_string_lossy().contains("$HOME") {
+            bail!("model_path inválido: substitua $HOME por caminho absoluto")
+        }
+        if model.extension().and_then(|e| e.to_str()) != Some("gguf") {
+            bail!("model_path precisa apontar para arquivo .gguf")
+        }
+        if !model.exists() {
+            bail!("modelo GGUF não encontrado em {}", model.display())
+        }
+        Ok(())
+    }
+
+    fn llama_binary(&self) -> String {
+        if let Some(path) = &self.config.binary_path {
+            return path.display().to_string();
+        }
+        std::env::var("LLAMA_CPP_BINARY").unwrap_or_else(|_| "llama-cli".to_string())
+    }
+}
+
+impl Default for LocalLlamaCppProvider {
+    fn default() -> Self {
+        Self {
+            config: LlmConfig::default(),
+        }
+    }
+}
 
 impl LlmProvider for LocalLlamaCppProvider {
-    fn generate_stream(&self, _prompt: &str) -> Result<Vec<String>> {
-        Ok(vec![
-            "[stub] integração llama.cpp será feita em M4".to_string()
-        ])
+    fn generate_stream(&self, prompt: &str) -> Result<Vec<String>> {
+        self.validate_config()?;
+
+        let bin = self.llama_binary();
+        let output = Command::new(&bin)
+            .args([
+                "-m",
+                self.config
+                    .model_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("model_path inválido"))?,
+                "-p",
+                prompt,
+                "-n",
+                &self.config.max_tokens.to_string(),
+                "-c",
+                &self.config.context_len.to_string(),
+                "--temp",
+                &self.config.temperature.to_string(),
+                "--top-p",
+                &self.config.top_p.to_string(),
+                "-ngl",
+                &self.config.gpu_layers.to_string(),
+                "--no-display-prompt",
+            ])
+            .output()
+            .with_context(|| format!("falha ao executar {bin}. Instale/compile o llama.cpp"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("llama.cpp retornou erro: {stderr}")
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        if text.trim().is_empty() {
+            return Ok(vec!["[llm] resposta vazia".to_string()]);
+        }
+
+        // MVP M4: simulamos streaming quebrando por linhas não vazias.
+        let chunks = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>();
+
+        if chunks.is_empty() {
+            Ok(vec![text])
+        } else {
+            Ok(chunks)
+        }
     }
 }
 
@@ -23,5 +135,34 @@ impl LlmProvider for RemoteProvider {
         Ok(vec![
             "[stub] provider remoto opcional será feito em M6".to_string()
         ])
+    }
+}
+
+pub fn model_recommendation_for_18gb() -> &'static str {
+    "Code Llama 7B GGUF (Q4_K_M recomendado; Q5_K_M opcional)"
+}
+
+pub fn is_gguf(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()) == Some("gguf")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_gguf() {
+        assert!(is_gguf(Path::new("model.gguf")));
+        assert!(!is_gguf(Path::new("model.bin")));
+    }
+
+    #[test]
+    fn validates_model_path_extension() {
+        let provider = LocalLlamaCppProvider::new(LlmConfig {
+            model_path: PathBuf::from("/tmp/model.bin"),
+            ..LlmConfig::default()
+        });
+
+        assert!(provider.validate_config().is_err());
     }
 }
