@@ -152,7 +152,7 @@ cargo test --workspace
 ### Mensagem `Tauri runtime indisponível` no Log / Console
 Isso ocorre quando a UI é aberta fora do runtime Tauri (por exemplo, via `http.server`).
 
-- Em modo navegador, o app usa fallback limitado (sem comandos backend reais).
+- Em modo navegador, o app usa fallback limitado (sem comandos backend reais). A seleção tenta `showDirectoryPicker` e depois fallback adicional (inclusive entrada manual) para não ficar travada em "Nenhum workspace selecionado".
 - Para fluxo completo (seletor nativo + chat backend), execute pelo app Tauri:
 
 ```bash

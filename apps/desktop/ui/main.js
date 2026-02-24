@@ -50,7 +50,21 @@ function updatePlan(steps = []) {
   }
 }
 
-function pickWorkspaceInBrowser() {
+async function pickWorkspaceInBrowser() {
+  if (window.showDirectoryPicker) {
+    try {
+      const handle = await window.showDirectoryPicker();
+      if (handle?.name) {
+        return `(browser) ${handle.name}`;
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return null;
+      }
+      appendLog(`showDirectoryPicker falhou: ${error}`);
+    }
+  }
+
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -111,11 +125,22 @@ workspaceBtn.addEventListener("click", async () => {
 
   if (!isTauriRuntime()) {
     appendLog("modo navegador: usando seletor de pasta web (fallback)");
-    const browserPath = await pickWorkspaceInBrowser();
+    let browserPath = await pickWorkspaceInBrowser();
+
+    if (!browserPath) {
+      const manual = window.prompt(
+        "Não foi possível obter a pasta automaticamente. Informe um nome/caminho para o workspace:",
+      );
+      if (manual?.trim()) {
+        browserPath = `(browser-manual) ${manual.trim()}`;
+      }
+    }
+
     if (!browserPath) {
       appendLog("workspace selection canceled");
       return;
     }
+
     window.localStorage.setItem("codexu.workspacePath", browserPath);
     updateWorkspaceUI(browserPath);
     appendLog(`workspace selected: ${browserPath}`);
