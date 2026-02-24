@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::sync::{mpsc, Mutex};
-use tauri::{api::dialog::FileDialogBuilder, AppHandle, Manager, State};
+use std::sync::Mutex;
+use tauri::{api::dialog::blocking::FileDialogBuilder, AppHandle, Manager, State};
 
 #[derive(Default)]
 struct AppState {
@@ -72,19 +72,14 @@ fn derive_plan_steps(message: &str) -> Vec<String> {
 #[tauri::command]
 fn select_workspace(app: AppHandle, state: State<'_, AppState>) -> Result<Option<String>, String> {
     println!("[backend] select_workspace called");
-    let (tx, rx) = mpsc::channel::<Option<String>>();
 
-    FileDialogBuilder::new().pick_folder(move |folder| {
-        let selected = folder.map(|path| path.display().to_string());
-        let _ = tx.send(selected);
-    });
-
-    let selected = rx
-        .recv()
-        .map_err(|e| format!("falha ao aguardar seleção de workspace: {e}"))?;
+    let selected = FileDialogBuilder::new()
+        .set_title("Selecione o workspace")
+        .pick_folder();
 
     match selected {
-        Some(path) => {
+        Some(path_buf) => {
+            let path = path_buf.display().to_string();
             let metadata =
                 fs::metadata(&path).map_err(|e| format!("falha ao validar workspace: {e}"))?;
             if !metadata.is_dir() {

@@ -159,3 +159,13 @@ Isso ocorre quando a UI é aberta fora do runtime Tauri (por exemplo, via `http.
 cargo run -p codexu_desktop
 ```
 
+### Cliquei em "Selecionar workspace" e nada acontece
+Em alguns ambientes, o fluxo assíncrono do seletor pode não retornar corretamente.
+
+A versão atual usa seletor nativo em modo bloqueante no backend Tauri para garantir que a pasta selecionada seja retornada para a UI.
+
+Se ainda não abrir/retornar seleção:
+- Execute o app via Tauri (`cargo run -p codexu_desktop`), não via navegador puro.
+- Verifique permissões do macOS para janelas/dialogs do app.
+- Confira o painel **Log / Console** para mensagens de erro.
+
