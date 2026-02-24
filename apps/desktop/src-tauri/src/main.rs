@@ -99,12 +99,30 @@ fn derive_plan_steps(message: &str) -> Vec<String> {
     steps
 }
 
+fn detect_first_gguf_in_default_models_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let models_dir = PathBuf::from(home).join(".codexu").join("models");
+    let entries = fs::read_dir(models_dir).ok()?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 fn build_llm_config_from_env() -> LlmConfig {
     let mut cfg = LlmConfig::default();
 
     if let Ok(p) = std::env::var("MODEL_GGUF_PATH") {
         cfg.model_path = PathBuf::from(p);
+    } else if let Some(auto) = detect_first_gguf_in_default_models_dir() {
+        cfg.model_path = auto;
     }
+
     if let Ok(p) = std::env::var("LLAMA_CPP_BINARY") {
         cfg.binary_path = Some(PathBuf::from(p));
     }
@@ -137,7 +155,10 @@ fn validate_llama_setup() -> LlamaSetupStatus {
     let mut ok = true;
 
     match provider.validate_config() {
-        Ok(()) => details.push("modelo GGUF válido e encontrado".to_string()),
+        Ok(()) => details.push(format!(
+            "modelo GGUF válido e encontrado: {}",
+            cfg.model_path.display()
+        )),
         Err(e) => {
             ok = false;
             details.push(format!("erro no modelo: {e}"));
