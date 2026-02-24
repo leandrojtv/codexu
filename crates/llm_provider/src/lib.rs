@@ -83,6 +83,34 @@ impl LocalLlamaCppProvider {
     }
 }
 
+fn sanitize_model_output(raw: &str) -> String {
+    let markers = [
+        "<|im_start|>",
+        "<|im_end|>",
+        "<|end|>",
+        "<|eot_id|>",
+        "<|start_header_id|>",
+        "<|end_header_id|>",
+        "<|assistant|>",
+        "<|user|>",
+        "<|system|>",
+        "_end|>",
+    ];
+
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            markers
+                .iter()
+                .fold(line.to_string(), |acc, marker| acc.replace(marker, ""))
+        })
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl Default for LocalLlamaCppProvider {
     fn default() -> Self {
         Self {
@@ -125,19 +153,21 @@ impl LlmProvider for LocalLlamaCppProvider {
         }
 
         let text = String::from_utf8_lossy(&output.stdout).to_string();
-        if text.trim().is_empty() {
-            return Ok(vec!["[llm] resposta vazia".to_string()]);
+        let sanitized = sanitize_model_output(&text);
+        if sanitized.trim().is_empty() {
+            return Ok(vec![
+                "[llm] resposta vazia ou somente tokens de controle".to_string()
+            ]);
         }
 
-        // MVP M4: simulamos streaming quebrando por linhas não vazias.
-        let chunks = text
+        let chunks = sanitized
             .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| l.to_string())
             .collect::<Vec<_>>();
 
         if chunks.is_empty() {
-            Ok(vec![text])
+            Ok(vec![sanitized])
         } else {
             Ok(chunks)
         }
@@ -181,5 +211,11 @@ mod tests {
         });
 
         assert!(provider.validate_config().is_err());
+    }
+
+    #[test]
+    fn sanitize_control_tokens() {
+        let raw = "<|im_start|>\n<|im_end|>\nOlá\n_end|>\n";
+        assert_eq!(sanitize_model_output(raw), "Olá");
     }
 }
