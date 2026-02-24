@@ -236,3 +236,45 @@ cargo clean
 cargo run -p codexu_desktop
 ```
 
+
+## Rebuild correto após atualizar a branch
+
+Sempre que você atualizar a branch local (pull/rebase), rode:
+
+```bash
+git pull
+cargo clean
+cargo fmt --all
+cargo test --workspace
+cargo run -p codexu_desktop
+```
+
+### Preciso rodar `setup_models.sh` de novo?
+- **Não**, se sua pasta de modelos já existe e o `.gguf` continua lá.
+- **Sim**, se você mudou de máquina/usuário ou apagou `~/.codexu/models`.
+
+---
+
+## Como validar se o llama.cpp está realmente ativo (não mock)
+
+1. Exporte variáveis antes de abrir o app:
+
+```bash
+export CODEXU_USE_LOCAL_LLM=1
+export MODEL_GGUF_PATH="$HOME/.codexu/models/code-llama-7b-q4_k_m.gguf"
+export LLAMA_CPP_BINARY="/caminho/llama.cpp/build/bin/llama-cli"
+```
+
+2. Rode o app:
+
+```bash
+cargo run -p codexu_desktop
+```
+
+3. No painel **Log / Console**, procure:
+- `llm setup: local-llm ON`
+- `llm setup detail: modelo GGUF válido e encontrado`
+- `llm setup detail: binário llama.cpp acessível`
+
+Se aparecer `local-llm OFF (mock)`, o chat continua no modo mock por design.
+

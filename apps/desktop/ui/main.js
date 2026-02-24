@@ -146,6 +146,22 @@ async function invoke(cmd, args = {}) {
   return tauriInvoke(cmd, args);
 }
 
+
+async function validateLlamaSetupOnLoad() {
+  if (!isTauriRuntime()) return;
+
+  try {
+    const status = await invoke("validate_llama_setup");
+    const mode = status.usingLocalLlm ? "local-llm ON" : "local-llm OFF (mock)";
+    appendLog(`llm setup: ${mode}`);
+    for (const line of status.details || []) {
+      appendLog(`llm setup detail: ${line}`);
+    }
+  } catch (error) {
+    appendLog(`erro ao validar setup do llama.cpp: ${error}`);
+  }
+}
+
 async function restoreWorkspaceOnLoad() {
   appendLog("init: restoring workspace");
 
@@ -262,4 +278,5 @@ chatForm.addEventListener("submit", async (event) => {
 });
 
 detectRuntimeMode();
+validateLlamaSetupOnLoad();
 restoreWorkspaceOnLoad();
