@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Mutex;
-use tauri::{api::dialog::blocking::FileDialogBuilder, AppHandle, Manager, State};
+use tauri::{api::dialog::FileDialogBuilder, AppHandle, Manager, State};
+use tokio::sync::oneshot;
+use tokio::time::{timeout, Duration};
 
 #[derive(Default)]
 struct AppState {
@@ -87,16 +89,35 @@ fn get_app_mode(app: AppHandle) -> AppMode {
 }
 
 #[tauri::command]
-fn select_workspace(app: AppHandle, state: State<'_, AppState>) -> Result<Option<String>, String> {
+async fn select_workspace(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
     println!("[backend] select_workspace called");
 
-    let selected = FileDialogBuilder::new()
+    let (tx, rx) = oneshot::channel::<Option<String>>();
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+    FileDialogBuilder::new()
         .set_title("Selecione o workspace")
-        .pick_folder();
+        .pick_folder({
+            let tx = tx.clone();
+            move |folder| {
+                if let Ok(mut guard) = tx.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(folder.map(|p| p.display().to_string()));
+                    }
+                }
+            }
+        });
+
+    let selected = timeout(Duration::from_secs(120), rx)
+        .await
+        .map_err(|_| "timeout ao aguardar seleção de workspace".to_string())?
+        .map_err(|_| "falha ao receber seleção de workspace".to_string())?;
 
     match selected {
-        Some(path_buf) => {
-            let path = path_buf.display().to_string();
+        Some(path) => {
             let metadata =
                 fs::metadata(&path).map_err(|e| format!("falha ao validar workspace: {e}"))?;
             if !metadata.is_dir() {

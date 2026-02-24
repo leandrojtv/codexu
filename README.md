@@ -224,3 +224,15 @@ Depois repita a build do `llama.cpp`:
 cmake -B build -DGGML_METAL=ON
 cmake --build build -j
 ```
+
+
+### Ao clicar em "Selecionar workspace" o app fica travado em "[backend] select_workspace called"
+Esse comportamento foi corrigido trocando o seletor por fluxo assíncrono (sem bloquear loop principal).
+
+Se você ainda vir isso, provavelmente está com binário antigo em cache:
+
+```bash
+cargo clean
+cargo run -p codexu_desktop
+```
+
