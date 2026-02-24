@@ -1,7 +1,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 pub trait LlmProvider {
     fn generate_stream(&self, prompt: &str) -> Result<Vec<String>>;
@@ -83,6 +85,11 @@ impl LocalLlamaCppProvider {
     }
 }
 
+fn is_noise_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.is_empty() && trimmed.len() > 8 && trimmed.chars().all(|c| c == '>')
+}
+
 fn sanitize_model_output(raw: &str) -> String {
     let markers = [
         "<|im_start|>",
@@ -107,6 +114,7 @@ fn sanitize_model_output(raw: &str) -> String {
         })
         .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
+        .filter(|line| !is_noise_line(line))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -124,7 +132,7 @@ impl LlmProvider for LocalLlamaCppProvider {
         self.validate_config()?;
 
         let bin = self.llama_binary();
-        let output = Command::new(&bin)
+        let mut child = Command::new(&bin)
             .args([
                 "-m",
                 expand_home(&self.config.model_path)
@@ -143,9 +151,33 @@ impl LlmProvider for LocalLlamaCppProvider {
                 "-ngl",
                 &self.config.gpu_layers.to_string(),
                 "--no-display-prompt",
+                "--simple-io",
             ])
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .with_context(|| format!("falha ao executar {bin}. Instale/compile o llama.cpp"))?;
+
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            if child.try_wait()?.is_some() {
+                break;
+            }
+
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "llama.cpp excedeu o tempo limite (60s). Isso pode indicar template/prompt incompatível com o modelo GGUF."
+                );
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        let output = child
+            .wait_with_output()
+            .with_context(|| "falha ao coletar saída do llama.cpp".to_string())?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
