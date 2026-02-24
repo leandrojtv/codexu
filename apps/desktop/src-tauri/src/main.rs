@@ -308,9 +308,17 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
             }
             Err(e) => {
                 println!("[backend] local llama.cpp falhou: {e}");
+                let cfg = build_llm_config_from_env();
+                let binary_hint = cfg
+                    .binary_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "llama-cli (PATH)".to_string());
                 return Ok(ChatResponse {
                     assistant_message: format!(
-                        "Falha no llama.cpp: {e}.\nUse o comando de validação de setup e confira MODEL_GGUF_PATH / LLAMA_CPP_BINARY."
+                        "Falha no llama.cpp: {e}.\nInstale/compile o llama.cpp e garanta que o binário está acessível.\nUse o comando de validação de setup e confira MODEL_GGUF_PATH / LLAMA_CPP_BINARY.\nConfiguração atual -> MODEL_GGUF_PATH: {} | LLAMA_CPP_BINARY: {}",
+                        cfg.model_path.display(),
+                        binary_hint
                     ),
                     plan_steps,
                     diff_text: None,
