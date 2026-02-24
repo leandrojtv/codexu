@@ -17,6 +17,14 @@ function appendLog(message) {
   console.log(line);
 }
 
+function getTauriInvoke() {
+  return window.__TAURI__?.tauri?.invoke || window.__TAURI__?.invoke || null;
+}
+
+function isTauriRuntime() {
+  return Boolean(getTauriInvoke());
+}
+
 function updateWorkspaceUI(path) {
   workspacePath = path || null;
   workspaceLabel.textContent = workspacePath
@@ -42,10 +50,33 @@ function updatePlan(steps = []) {
   }
 }
 
+function pickWorkspaceInBrowser() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.webkitdirectory = true;
+    input.directory = true;
+
+    input.addEventListener("change", () => {
+      const first = input.files?.[0];
+      if (!first) {
+        resolve(null);
+        return;
+      }
+
+      const rel = first.webkitRelativePath || "";
+      const topFolder = rel.split("/")[0] || null;
+      resolve(topFolder ? `(browser) ${topFolder}` : "(browser) workspace");
+    });
+
+    input.click();
+  });
+}
+
 async function invoke(cmd, args = {}) {
-  const tauriInvoke = window.__TAURI__?.tauri?.invoke;
+  const tauriInvoke = getTauriInvoke();
   if (!tauriInvoke) {
-    throw new Error("Tauri invoke indisponível (rodando fora do app Tauri)");
+    throw new Error("Tauri runtime indisponível");
   }
   return tauriInvoke(cmd, args);
 }
@@ -56,6 +87,11 @@ async function restoreWorkspaceOnLoad() {
   const cached = window.localStorage.getItem("codexu.workspacePath");
   if (cached) {
     updateWorkspaceUI(cached);
+  }
+
+  if (!isTauriRuntime()) {
+    appendLog("modo navegador detectado: restore backend desabilitado");
+    return;
   }
 
   try {
@@ -72,6 +108,20 @@ async function restoreWorkspaceOnLoad() {
 
 workspaceBtn.addEventListener("click", async () => {
   appendLog("action: select_workspace");
+
+  if (!isTauriRuntime()) {
+    appendLog("modo navegador: usando seletor de pasta web (fallback)");
+    const browserPath = await pickWorkspaceInBrowser();
+    if (!browserPath) {
+      appendLog("workspace selection canceled");
+      return;
+    }
+    window.localStorage.setItem("codexu.workspacePath", browserPath);
+    updateWorkspaceUI(browserPath);
+    appendLog(`workspace selected: ${browserPath}`);
+    return;
+  }
+
   try {
     const path = await invoke("select_workspace");
     if (!path) {
@@ -102,6 +152,20 @@ chatForm.addEventListener("submit", async (event) => {
     const warning = "Selecione um workspace antes de enviar mensagens.";
     addChatMessage("assistant", warning);
     appendLog("send blocked: workspace not selected");
+    return;
+  }
+
+  if (!isTauriRuntime()) {
+    addChatMessage(
+      "assistant",
+      "Rodando no navegador (fallback). Abra pelo Tauri para respostas do backend real.",
+    );
+    updatePlan([
+      "Confirmar workspace selecionado",
+      "Executar app via Tauri",
+      "Reenviar mensagem",
+    ]);
+    appendLog("send fallback: tauri runtime indisponível");
     return;
   }
 

@@ -147,3 +147,14 @@ cargo clean
 cargo test --workspace
 ```
 
+
+### Mensagem `Tauri runtime indisponível` no Log / Console
+Isso ocorre quando a UI é aberta fora do runtime Tauri (por exemplo, via `http.server`).
+
+- Em modo navegador, o app usa fallback limitado (sem comandos backend reais).
+- Para fluxo completo (seletor nativo + chat backend), execute pelo app Tauri:
+
+```bash
+cargo run -p codexu_desktop
+```
+
