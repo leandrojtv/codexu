@@ -19,10 +19,31 @@ pub struct LlmConfig {
     pub gpu_layers: usize,
 }
 
+fn default_model_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home)
+            .join(".codexu")
+            .join("models")
+            .join("code-llama-7b-q4_k_m.gguf");
+    }
+
+    PathBuf::from(".codexu/models/code-llama-7b-q4_k_m.gguf")
+}
+
+fn expand_home(path: &Path) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix("$HOME/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            model_path: PathBuf::from("$HOME/.codexu/models/code-llama-7b-q4_k_m.gguf"),
+            model_path: default_model_path(),
             binary_path: None,
             context_len: 4096,
             max_tokens: 512,
@@ -44,10 +65,7 @@ impl LocalLlamaCppProvider {
     }
 
     pub fn validate_config(&self) -> Result<()> {
-        let model = &self.config.model_path;
-        if model.to_string_lossy().contains("$HOME") {
-            bail!("model_path inválido: substitua $HOME por caminho absoluto")
-        }
+        let model = expand_home(&self.config.model_path);
         if model.extension().and_then(|e| e.to_str()) != Some("gguf") {
             bail!("model_path precisa apontar para arquivo .gguf")
         }
@@ -81,8 +99,7 @@ impl LlmProvider for LocalLlamaCppProvider {
         let output = Command::new(&bin)
             .args([
                 "-m",
-                self.config
-                    .model_path
+                expand_home(&self.config.model_path)
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("model_path inválido"))?,
                 "-p",

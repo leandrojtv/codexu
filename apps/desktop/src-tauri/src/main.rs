@@ -73,6 +73,13 @@ fn load_persisted_workspace(app: &AppHandle) -> Result<Option<String>, String> {
     Ok(Some(trimmed))
 }
 
+fn local_llm_enabled() -> bool {
+    match std::env::var("CODEXU_USE_LOCAL_LLM") {
+        Ok(v) if v == "0" => false,
+        _ => true,
+    }
+}
+
 fn derive_plan_steps(message: &str) -> Vec<String> {
     let lower = message.to_lowercase();
     let mut steps = vec!["Analisar objetivo do usuário".to_string()];
@@ -116,7 +123,7 @@ fn get_app_mode(app: AppHandle) -> AppMode {
 
 #[tauri::command]
 fn validate_llama_setup() -> LlamaSetupStatus {
-    let using_local_llm = std::env::var("CODEXU_USE_LOCAL_LLM").ok().as_deref() == Some("1");
+    let using_local_llm = local_llm_enabled();
     let cfg = build_llm_config_from_env();
     let provider = LocalLlamaCppProvider::new(cfg.clone());
 
@@ -161,7 +168,7 @@ fn validate_llama_setup() -> LlamaSetupStatus {
     }
 
     if !using_local_llm {
-        details.push("CODEXU_USE_LOCAL_LLM != 1 (chat continua em modo mock)".to_string());
+        details.push("CODEXU_USE_LOCAL_LLM=0 (chat em modo mock)".to_string());
     }
 
     LlamaSetupStatus {
@@ -265,7 +272,7 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
 
     let plan_steps = derive_plan_steps(&message);
 
-    let use_local = std::env::var("CODEXU_USE_LOCAL_LLM").ok().as_deref() == Some("1");
+    let use_local = local_llm_enabled();
     if use_local {
         let provider = LocalLlamaCppProvider::new(build_llm_config_from_env());
         match provider.generate_stream(&message) {
@@ -292,7 +299,7 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
     }
 
     let assistant_message = format!(
-        "[mock] Entendi. Vou trabalhar no pedido: \"{}\".\nPara usar llama.cpp real, exporte CODEXU_USE_LOCAL_LLM=1.",
+        "[mock] Entendi. Vou trabalhar no pedido: \"{}\".\nLocal LLM está desabilitado (CODEXU_USE_LOCAL_LLM=0).",
         message
     );
     let diff_text =

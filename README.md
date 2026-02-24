@@ -260,7 +260,8 @@ cargo run -p codexu_desktop
 1. Exporte variáveis antes de abrir o app:
 
 ```bash
-export CODEXU_USE_LOCAL_LLM=1
+# opcional: só use 0 se quiser forçar modo mock
+# export CODEXU_USE_LOCAL_LLM=0
 export MODEL_GGUF_PATH="$HOME/.codexu/models/code-llama-7b-q4_k_m.gguf"
 export LLAMA_CPP_BINARY="/caminho/llama.cpp/build/bin/llama-cli"
 ```
@@ -276,5 +277,10 @@ cargo run -p codexu_desktop
 - `llm setup detail: modelo GGUF válido e encontrado`
 - `llm setup detail: binário llama.cpp acessível`
 
-Se aparecer `local-llm OFF (mock)`, o chat continua no modo mock por design.
+Se aparecer `local-llm OFF (mock)`, verifique se `CODEXU_USE_LOCAL_LLM=0` está setado no shell.
 
+
+
+### Log: `model_path inválido: substitua $HOME`
+Esse erro era de versão antiga. Agora o app expande `$HOME` automaticamente.
+Se ainda aparecer, rode `cargo clean && cargo run -p codexu_desktop` para recompilar sem cache.
