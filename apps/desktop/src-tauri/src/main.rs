@@ -140,6 +140,14 @@ fn read_env_path(key: &str) -> Option<PathBuf> {
     Some(expand_tilde_path(&normalized))
 }
 
+fn resolved_timeout_secs() -> u64 {
+    std::env::var("LLAMA_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v >= 30)
+        .unwrap_or(180)
+}
+
 fn detect_first_gguf_in_default_models_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let models_dir = PathBuf::from(home).join(".codexu").join("models");
@@ -290,6 +298,11 @@ fn validate_llama_setup() -> LlamaSetupStatus {
     for note in resolve_binary_path().1 {
         details.push(note);
     }
+
+    details.push(format!(
+        "timeout de geração configurado: {}s (LLAMA_TIMEOUT_SECS)",
+        resolved_timeout_secs()
+    ));
 
     match provider.validate_config() {
         Ok(()) => details.push(format!(
@@ -451,8 +464,12 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "llama-cli (PATH)".to_string());
-                let err_text = e.to_string();
-                let guidance = if err_text.contains("tempo limite") {
+                let err_text = e.to_string().to_lowercase();
+                let timeout_like = err_text.contains("tempo limite")
+                    || err_text.contains("excedeu o tempo")
+                    || err_text.contains("timeout")
+                    || err_text.contains("timed out");
+                let guidance = if timeout_like {
                     "A geração excedeu o tempo limite. Tente aumentar LLAMA_TIMEOUT_SECS (ex.: 300), reduzir max_tokens/contexto ou usar quantização/modelo mais leve."
                 } else {
                     "Instale/compile o llama.cpp e garanta que o binário está acessível."
