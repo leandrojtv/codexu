@@ -451,9 +451,18 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "llama-cli (PATH)".to_string());
+                let err_text = e.to_string();
+                let guidance = if err_text.contains("tempo limite") {
+                    "A geração excedeu o tempo limite. Tente aumentar LLAMA_TIMEOUT_SECS (ex.: 300), reduzir max_tokens/contexto ou usar quantização/modelo mais leve."
+                } else {
+                    "Instale/compile o llama.cpp e garanta que o binário está acessível."
+                };
                 return Ok(ChatResponse {
                     assistant_message: format!(
-                        "Falha no llama.cpp: {e}.\nInstale/compile o llama.cpp e garanta que o binário está acessível.\nUse o comando de validação de setup e confira MODEL_GGUF_PATH / LLAMA_CPP_BINARY.\nConfiguração atual -> MODEL_GGUF_PATH: {} | LLAMA_CPP_BINARY: {}",
+                        "Falha no llama.cpp: {e}.
+{guidance}
+Use o comando de validação de setup e confira MODEL_GGUF_PATH / LLAMA_CPP_BINARY.
+Configuração atual -> MODEL_GGUF_PATH: {} | LLAMA_CPP_BINARY: {}",
                         cfg.model_path.display(),
                         binary_hint
                     ),

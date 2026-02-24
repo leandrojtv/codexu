@@ -32,6 +32,14 @@ fn default_model_path() -> PathBuf {
     PathBuf::from(".codexu/models/code-llama-7b-q4_k_m.gguf")
 }
 
+fn llama_timeout_secs() -> u64 {
+    std::env::var("LLAMA_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v >= 30)
+        .unwrap_or(180)
+}
+
 fn expand_home(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
     if let Some(rest) = raw.strip_prefix("$HOME/") {
@@ -158,7 +166,8 @@ impl LlmProvider for LocalLlamaCppProvider {
             .spawn()
             .with_context(|| format!("falha ao executar {bin}. Instale/compile o llama.cpp"))?;
 
-        let deadline = Instant::now() + Duration::from_secs(60);
+        let timeout_secs = llama_timeout_secs();
+        let deadline = Instant::now() + Duration::from_secs(timeout_secs);
         loop {
             if child.try_wait()?.is_some() {
                 break;
@@ -168,7 +177,7 @@ impl LlmProvider for LocalLlamaCppProvider {
                 let _ = child.kill();
                 let _ = child.wait();
                 bail!(
-                    "llama.cpp excedeu o tempo limite (60s). Isso pode indicar template/prompt incompatível com o modelo GGUF."
+                    "llama.cpp excedeu o tempo limite ({timeout_secs}s). Isso pode indicar geração lenta (CPU), template/prompt incompatível ou parâmetros agressivos para o hardware atual."
                 );
             }
 
