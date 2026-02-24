@@ -26,6 +26,13 @@ cd codexu
 - Xcode Command Line Tools
 - Rust stable (cargo)
 - Dependências Tauri para macOS
+- **CMake** (obrigatório para compilar `llama.cpp`)
+
+Instalação rápida (Homebrew):
+
+```bash
+brew install cmake
+```
 
 3. Rode validações:
 
@@ -194,3 +201,26 @@ cargo run -p codexu_desktop
 3. No Log / Console do app, veja a linha de debug:
    - `__TAURI__=true` esperado no runtime desktop.
 
+
+
+### `zsh: command not found: cmake`
+Você não tem o CMake instalado no macOS.
+
+Instale com Homebrew:
+
+```bash
+brew install cmake
+```
+
+Valide:
+
+```bash
+cmake --version
+```
+
+Depois repita a build do `llama.cpp`:
+
+```bash
+cmake -B build -DGGML_METAL=ON
+cmake --build build -j
+```
