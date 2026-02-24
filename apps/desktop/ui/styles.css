@@ -72,3 +72,11 @@ button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+.badge {
+  border: 1px solid #30363d;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #9da7b3;
+}

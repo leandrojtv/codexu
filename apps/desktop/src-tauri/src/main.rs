@@ -18,6 +18,14 @@ struct ChatResponse {
     diff_text: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppMode {
+    runtime: String,
+    version: String,
+    milestone: String,
+}
+
 fn workspace_config_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path_resolver()
@@ -67,6 +75,15 @@ fn derive_plan_steps(message: &str) -> Vec<String> {
 
     steps.push("Validar resultado e resumir".to_string());
     steps
+}
+
+#[tauri::command]
+fn get_app_mode(app: AppHandle) -> AppMode {
+    AppMode {
+        runtime: "tauri".to_string(),
+        version: app.package_info().version.to_string(),
+        milestone: "M2".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -169,6 +186,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_app_mode,
             select_workspace,
             get_workspace,
             send_chat_message

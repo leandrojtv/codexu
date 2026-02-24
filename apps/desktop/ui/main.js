@@ -7,6 +7,8 @@ const planList = document.getElementById("planList");
 const diffView = document.getElementById("diffView");
 const logView = document.getElementById("logView");
 const sendBtn = document.getElementById("sendBtn");
+const runtimeBadge = document.getElementById("runtimeBadge");
+const appTitle = document.getElementById("appTitle");
 
 let workspacePath = null;
 
@@ -47,6 +49,31 @@ function updatePlan(steps = []) {
     const li = document.createElement("li");
     li.textContent = step;
     planList.appendChild(li);
+  }
+}
+
+
+function setRuntimeBadge(text) {
+  runtimeBadge.textContent = text;
+}
+
+async function detectRuntimeMode() {
+  if (!isTauriRuntime()) {
+    setRuntimeBadge("runtime: browser fallback");
+    appendLog("modo navegador detectado: backend Tauri não disponível");
+    return;
+  }
+
+  try {
+    const mode = await invoke("get_app_mode");
+    const milestone = mode?.milestone || "M?";
+    const version = mode?.version || "dev";
+    appTitle.textContent = `Codexu (${milestone})`;
+    setRuntimeBadge(`runtime: ${mode.runtime} v${version}`);
+    appendLog(`runtime confirmado: ${mode.runtime} (${milestone}) v${version}`);
+  } catch (error) {
+    setRuntimeBadge("runtime: tauri (erro de handshake)");
+    appendLog(`erro ao validar runtime Tauri: ${error}`);
   }
 }
 
@@ -104,7 +131,6 @@ async function restoreWorkspaceOnLoad() {
   }
 
   if (!isTauriRuntime()) {
-    appendLog("modo navegador detectado: restore backend desabilitado");
     return;
   }
 
@@ -210,4 +236,5 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
+detectRuntimeMode();
 restoreWorkspaceOnLoad();

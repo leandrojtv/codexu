@@ -7,9 +7,10 @@ Aplicativo desktop local-first inspirado em agentes de engenharia (Codex/Claude 
 - ✅ **M2 concluído**: guardrails base nas tools (workspace sandbox, diff-first, backup branch, shell policy).
 - 🚧 **Próximo**: M3 (indexer SQLite FTS + ripgrep).
 
-## O que existe hoje (M1)
+## O que existe hoje (M1/M2)
 - Monorepo Rust com crates de agente, tools, indexador e provider.
 - App desktop Tauri com UI mínima contendo:
+  - Badge de runtime no topo (ex.: `runtime: tauri v0.1.0`) para confirmar desktop real vs fallback navegador
   - Chat
   - Plan/Steps
   - Diff Viewer (Apply/Reject)
