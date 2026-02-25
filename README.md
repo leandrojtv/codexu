@@ -284,3 +284,30 @@ Se aparecer `local-llm OFF (mock)`, verifique se `CODEXU_USE_LOCAL_LLM=0` está 
 ### Log: `model_path inválido: substitua $HOME`
 Esse erro era de versão antiga. Agora o app expande `$HOME` automaticamente.
 Se ainda aparecer, rode `cargo clean && cargo run -p codexu_desktop` para recompilar sem cache.
+
+## LLM por endpoint Docker (recomendado para estabilidade)
+
+Agora o app também pode usar um endpoint HTTP de modelo em vez de executar `llama-cli` diretamente.
+
+### Subir CodeLlama via Docker
+
+Arquivos prontos em `deployment/llm-docker/`.
+
+```bash
+cd deployment/llm-docker
+docker compose up -d
+docker compose run --rm ollama-init
+```
+
+### Configurar o app para endpoint
+
+```bash
+export CODEXU_USE_LOCAL_LLM=1
+export CODEXU_LLM_BACKEND=endpoint
+export CODEXU_LLM_ENDPOINT_URL="http://127.0.0.1:11434"
+export CODEXU_LLM_MODEL="codellama:7b-instruct"
+
+cargo run -p codexu_desktop
+```
+
+Com isso, o chat usa `POST /api/generate` no endpoint em vez de `llama-cli` local.

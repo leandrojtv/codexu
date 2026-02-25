@@ -1,5 +1,7 @@
 use anyhow::{bail, Context, Result};
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -19,6 +21,8 @@ pub struct LlmConfig {
     pub temperature: f32,
     pub top_p: f32,
     pub gpu_layers: usize,
+    pub endpoint_url: Option<String>,
+    pub endpoint_model: String,
 }
 
 fn default_model_path() -> PathBuf {
@@ -60,6 +64,8 @@ impl Default for LlmConfig {
             temperature: 0.2,
             top_p: 0.95,
             gpu_layers: 99,
+            endpoint_url: None,
+            endpoint_model: "codellama:7b-instruct".to_string(),
         }
     }
 }
@@ -217,6 +223,87 @@ impl LlmProvider for LocalLlamaCppProvider {
         } else {
             Ok(chunks)
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EndpointLlmProvider {
+    pub config: LlmConfig,
+}
+
+impl EndpointLlmProvider {
+    pub fn new(config: LlmConfig) -> Self {
+        Self { config }
+    }
+
+    fn endpoint_url(&self) -> String {
+        self.config
+            .endpoint_url
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+    }
+
+    pub fn validate_config(&self) -> Result<()> {
+        let url = format!("{}/api/tags", self.endpoint_url().trim_end_matches('/'));
+        let client = Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .context("falha ao criar client HTTP")?;
+        let resp = client
+            .get(url)
+            .send()
+            .context("falha ao conectar no endpoint do modelo")?;
+        if !resp.status().is_success() {
+            bail!("endpoint retornou status HTTP {}", resp.status());
+        }
+        Ok(())
+    }
+}
+
+impl LlmProvider for EndpointLlmProvider {
+    fn generate_stream(&self, prompt: &str) -> Result<Vec<String>> {
+        let base = self.endpoint_url();
+        let url = format!("{}/api/generate", base.trim_end_matches('/'));
+        let client = Client::builder()
+            .timeout(Duration::from_secs(llama_timeout_secs()))
+            .build()
+            .context("falha ao criar client HTTP")?;
+
+        let body = serde_json::json!({
+            "model": self.config.endpoint_model,
+            "prompt": prompt,
+            "stream": false
+        });
+
+        let resp = client
+            .post(url)
+            .json(&body)
+            .send()
+            .context("falha ao chamar endpoint do modelo")?;
+
+        if !resp.status().is_success() {
+            let code = resp.status();
+            let txt = resp.text().unwrap_or_default();
+            bail!("endpoint retornou erro HTTP {code}: {txt}");
+        }
+
+        let payload: Value = resp.json().context("resposta JSON inválida do endpoint")?;
+        let text = payload
+            .get("response")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        let sanitized = sanitize_model_output(&text);
+        if sanitized.trim().is_empty() {
+            return Ok(vec!["[llm-endpoint] resposta vazia".to_string()]);
+        }
+
+        Ok(sanitized
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .collect())
     }
 }
 

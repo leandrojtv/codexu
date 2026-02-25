@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use llm_provider::{model_recommendation_for_18gb, LlmConfig, LlmProvider, LocalLlamaCppProvider};
+use llm_provider::{
+    model_recommendation_for_18gb, EndpointLlmProvider, LlmConfig, LlmProvider,
+    LocalLlamaCppProvider,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -78,6 +81,25 @@ fn local_llm_enabled() -> bool {
         Ok(v) if v == "0" => false,
         _ => true,
     }
+}
+
+fn endpoint_backend_enabled() -> bool {
+    matches!(std::env::var("CODEXU_LLM_BACKEND"), Ok(v) if v.eq_ignore_ascii_case("endpoint"))
+        || std::env::var("CODEXU_LLM_ENDPOINT_URL").is_ok()
+}
+
+fn endpoint_url_from_env() -> String {
+    std::env::var("CODEXU_LLM_ENDPOINT_URL")
+        .ok()
+        .and_then(|v| normalize_env_value(&v))
+        .unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+}
+
+fn endpoint_model_from_env() -> String {
+    std::env::var("CODEXU_LLM_MODEL")
+        .ok()
+        .and_then(|v| normalize_env_value(&v))
+        .unwrap_or_else(|| "codellama:7b-instruct".to_string())
 }
 
 fn derive_plan_steps(message: &str) -> Vec<String> {
@@ -264,6 +286,8 @@ fn build_llm_config_from_env() -> LlmConfig {
     let mut cfg = LlmConfig::default();
     cfg.model_path = resolve_model_path().0;
     cfg.binary_path = resolve_binary_path().0;
+    cfg.endpoint_url = Some(endpoint_url_from_env());
+    cfg.endpoint_model = endpoint_model_from_env();
     cfg
 }
 
@@ -303,6 +327,35 @@ fn validate_llama_setup() -> LlamaSetupStatus {
         "timeout de geração configurado: {}s (LLAMA_TIMEOUT_SECS)",
         resolved_timeout_secs()
     ));
+
+    if endpoint_backend_enabled() {
+        details.push(format!(
+            "backend selecionado: endpoint ({})",
+            endpoint_url_from_env()
+        ));
+        details.push(format!("modelo endpoint: {}", endpoint_model_from_env()));
+        let endpoint_provider = EndpointLlmProvider::new(cfg.clone());
+        match endpoint_provider.validate_config() {
+            Ok(()) => details.push("endpoint do modelo acessível".to_string()),
+            Err(e) => {
+                ok = false;
+                details.push(format!("erro no endpoint: {e}"));
+            }
+        }
+
+        return LlamaSetupStatus {
+            ok,
+            using_local_llm,
+            model_path: cfg.model_path.display().to_string(),
+            binary: cfg
+                .endpoint_url
+                .clone()
+                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
+            recommendation: "Use Docker + modelo codellama e aponte CODEXU_LLM_ENDPOINT_URL"
+                .to_string(),
+            details,
+        };
+    }
 
     match provider.validate_config() {
         Ok(()) => details.push(format!(
@@ -445,7 +498,38 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
 
     let use_local = local_llm_enabled();
     if use_local {
-        let provider = LocalLlamaCppProvider::new(build_llm_config_from_env());
+        let cfg = build_llm_config_from_env();
+        if endpoint_backend_enabled() {
+            let provider = EndpointLlmProvider::new(cfg.clone());
+            match provider.generate_stream(&message) {
+                Ok(chunks) => {
+                    let assistant_message = chunks.join("\n");
+                    println!("[backend] response generated (endpoint)");
+                    return Ok(ChatResponse {
+                        assistant_message,
+                        plan_steps,
+                        diff_text: None,
+                    });
+                }
+                Err(e) => {
+                    return Ok(ChatResponse {
+                        assistant_message: format!(
+                            "Falha no endpoint de LLM: {e}.
+Verifique CODEXU_LLM_ENDPOINT_URL / CODEXU_LLM_MODEL e se o Docker está ativo.
+Endpoint atual: {} | Modelo: {}",
+                            cfg.endpoint_url
+                                .clone()
+                                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
+                            cfg.endpoint_model
+                        ),
+                        plan_steps,
+                        diff_text: None,
+                    });
+                }
+            }
+        }
+
+        let provider = LocalLlamaCppProvider::new(cfg);
         match provider.generate_stream(&message) {
             Ok(chunks) => {
                 let assistant_message = chunks.join("\n");
