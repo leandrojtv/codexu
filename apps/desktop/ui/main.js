@@ -1,282 +1,104 @@
-const workspaceLabel = document.getElementById("workspaceLabel");
-const workspaceBtn = document.getElementById("workspaceBtn");
-const chatForm = document.getElementById("chatForm");
-const chatInput = document.getElementById("chatInput");
-const chatLog = document.getElementById("chatLog");
-const planList = document.getElementById("planList");
-const diffView = document.getElementById("diffView");
-const logView = document.getElementById("logView");
-const sendBtn = document.getElementById("sendBtn");
-const runtimeBadge = document.getElementById("runtimeBadge");
-const appTitle = document.getElementById("appTitle");
-const runtimeHelp = document.getElementById("runtimeHelp");
+const $ = (id) => document.getElementById(id);
+const chatLog = $("chatLog"), chatForm=$("chatForm"), chatInput=$("chatInput"), sendBtn=$("sendBtn");
+const planList=$("planList"), diffView=$("diffView"), logView=$("logView"), preview=$("preview");
+const workspaceLabel=$("workspaceLabel"), statusBar=$("statusBar");
+let workspacePath=null, settings=null;
 
-let workspacePath = null;
+function getTauriInvoke(){return window.__TAURI__?.tauri?.invoke||window.__TAURI__?.invoke||window.__TAURI_INTERNALS__?.invoke||null}
+async function invoke(cmd,args={}){const i=getTauriInvoke(); if(!i) throw new Error("Tauri runtime indisponível"); return i(cmd,args)}
+const isTauri=()=>Boolean(getTauriInvoke());
 
-function appendLog(message) {
-  const line = `[${new Date().toLocaleTimeString()}] ${message}`;
-  logView.textContent += `\n${line}`;
-  logView.scrollTop = logView.scrollHeight;
-  console.log(line);
+function log(level,msg){const line=`[${new Date().toLocaleTimeString()}] ${level}: ${msg}`; if($("logFilter").value==="all"||$("logFilter").value===level){logView.textContent+=`\n${line}`;logView.scrollTop=logView.scrollHeight;} console.log(line)}
+
+function setStatus(extra="-"){statusBar.textContent=`provider: ${settings?.provider||"-"} | modelo: ${settings?.model||"-"} | workspace: ${workspacePath||"-"} | ${extra}`}
+
+function parseMarkdown(text){
+  const escaped=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return escaped
+    .replace(/```([\s\S]*?)```/g,(_,code)=>`<div class='code'><button class='copy-code'>Copiar</button><pre>${code}</pre></div>`)
+    .replace(/^### (.*)$/gm,"<h3>$1</h3>")
+    .replace(/^## (.*)$/gm,"<h2>$1</h2>")
+    .replace(/^# (.*)$/gm,"<h1>$1</h1>")
+    .replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")
+    .replace(/\n/g,"<br>");
 }
 
-function getTauriInvoke() {
-  return (
-    window.__TAURI__?.tauri?.invoke ||
-    window.__TAURI__?.invoke ||
-    window.__TAURI_INTERNALS__?.invoke ||
-    null
-  );
+function addChat(role,text){
+  const el=document.createElement("div"); el.className=`msg ${role}`;
+  el.innerHTML=`<b>${role==="user"?"Você":"Assistant"}</b><div>${parseMarkdown(text)}</div>`;
+  chatLog.appendChild(el); chatLog.scrollTop=chatLog.scrollHeight;
 }
 
-function isTauriRuntime() {
-  return Boolean(getTauriInvoke());
-}
-
-function updateWorkspaceUI(path) {
-  workspacePath = path || null;
-  workspaceLabel.textContent = workspacePath
-    ? `Workspace: ${workspacePath}`
-    : "Nenhum workspace selecionado";
-  sendBtn.disabled = !workspacePath;
-}
-
-function addChatMessage(role, text) {
-  const line = document.createElement("p");
-  line.className = `msg ${role}`;
-  line.textContent = `${role === "user" ? "Você" : "Assistant"}: ${text}`;
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function updatePlan(steps = []) {
-  planList.innerHTML = "";
-  for (const step of steps) {
-    const li = document.createElement("li");
-    li.textContent = step;
-    planList.appendChild(li);
-  }
-}
-
-
-function setRuntimeBadge(text) {
-  runtimeBadge.textContent = text;
-}
-
-function setRuntimeHelp(text, isWarning = false) {
-  runtimeHelp.textContent = text;
-  runtimeHelp.classList.toggle("warning", isWarning);
-}
-
-async function detectRuntimeMode() {
-  if (!isTauriRuntime()) {
-    setRuntimeBadge("runtime: browser fallback");
-    setRuntimeHelp(
-      "Você está no modo navegador/fallback. Se abriu via cargo run e mesmo assim caiu aqui, faça `cargo clean && cargo run -p codexu_desktop` e confira `withGlobalTauri: true` no tauri.conf.",
-      true,
-    );
-    appendLog("modo navegador detectado: backend Tauri não disponível");
-    appendLog(`debug runtime: __TAURI__=${Boolean(window.__TAURI__)}, __TAURI_IPC__=${Boolean(window.__TAURI_IPC__)}`);
-    return;
-  }
-
-  try {
-    const mode = await invoke("get_app_mode");
-    const milestone = mode?.milestone || "M?";
-    const version = mode?.version || "dev";
-    appTitle.textContent = `Codexu (${milestone})`;
-    setRuntimeBadge(`runtime: ${mode.runtime} v${version}`);
-    setRuntimeHelp(
-      "Modo desktop Tauri ativo. Se o seletor não abrir, verifique permissões de Arquivos e Pastas no macOS.",
-      false,
-    );
-    appendLog(`runtime confirmado: ${mode.runtime} (${milestone}) v${version}`);
-  } catch (error) {
-    setRuntimeBadge("runtime: tauri (erro de handshake)");
-    setRuntimeHelp(
-      "Não foi possível confirmar modo Tauri. Reinicie com: cargo run -p codexu_desktop",
-      true,
-    );
-    appendLog(`erro ao validar runtime Tauri: ${error}`);
-  }
-}
-
-async function pickWorkspaceInBrowser() {
-  if (window.showDirectoryPicker) {
-    try {
-      const handle = await window.showDirectoryPicker();
-      if (handle?.name) {
-        return `(browser) ${handle.name}`;
-      }
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        return null;
-      }
-      appendLog(`showDirectoryPicker falhou: ${error}`);
-    }
-  }
-
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.webkitdirectory = true;
-    input.directory = true;
-
-    input.addEventListener("change", () => {
-      const first = input.files?.[0];
-      if (!first) {
-        resolve(null);
-        return;
-      }
-
-      const rel = first.webkitRelativePath || "";
-      const topFolder = rel.split("/")[0] || null;
-      resolve(topFolder ? `(browser) ${topFolder}` : "(browser) workspace");
-    });
-
-    input.click();
-  });
-}
-
-async function invoke(cmd, args = {}) {
-  const tauriInvoke = getTauriInvoke();
-  if (!tauriInvoke) {
-    throw new Error("Tauri runtime indisponível");
-  }
-  return tauriInvoke(cmd, args);
-}
-
-
-async function validateLlamaSetupOnLoad() {
-  if (!isTauriRuntime()) return;
-
-  try {
-    const status = await invoke("validate_llama_setup");
-    const mode = status.usingLocalLlm ? "local-llm ON" : "local-llm OFF (mock)";
-    appendLog(`llm setup: ${mode}`);
-    for (const line of status.details || []) {
-      appendLog(`llm setup detail: ${line}`);
-    }
-  } catch (error) {
-    appendLog(`erro ao validar setup do llama.cpp: ${error}`);
-  }
-}
-
-async function restoreWorkspaceOnLoad() {
-  appendLog("init: restoring workspace");
-
-  const cached = window.localStorage.getItem("codexu.workspacePath");
-  if (cached) {
-    updateWorkspaceUI(cached);
-  }
-
-  if (!isTauriRuntime()) {
-    return;
-  }
-
-  try {
-    const path = await invoke("get_workspace");
-    if (path) {
-      window.localStorage.setItem("codexu.workspacePath", path);
-      updateWorkspaceUI(path);
-      appendLog(`workspace restored: ${path}`);
-    }
-  } catch (error) {
-    appendLog(`erro ao restaurar workspace: ${error}`);
-  }
-}
-
-workspaceBtn.addEventListener("click", async () => {
-  appendLog("action: select_workspace");
-
-  if (!isTauriRuntime()) {
-    appendLog("modo navegador: usando seletor de pasta web (fallback)");
-    let browserPath = await pickWorkspaceInBrowser();
-
-    if (!browserPath) {
-      const manual = window.prompt(
-        "No navegador não é possível obter caminho absoluto com confiabilidade. Informe manualmente o nome/caminho do workspace:",
-        "workspace-local",
-      );
-      if (manual?.trim()) {
-        browserPath = `(browser-manual) ${manual.trim()}`;
-      }
-    }
-
-    if (!browserPath) {
-      appendLog("workspace selection canceled");
-      return;
-    }
-
-    window.localStorage.setItem("codexu.workspacePath", browserPath);
-    updateWorkspaceUI(browserPath);
-    appendLog(`workspace selected: ${browserPath}`);
-    return;
-  }
-
-  try {
-    const path = await invoke("select_workspace");
-    if (!path) {
-      appendLog("workspace selection canceled");
-      return;
-    }
-
-    window.localStorage.setItem("codexu.workspacePath", path);
-    updateWorkspaceUI(path);
-    appendLog(`workspace selected: ${path}`);
-  } catch (error) {
-    appendLog(`erro em select_workspace: ${error}`);
-  }
+document.addEventListener("click", async (e)=>{
+  if(e.target.matches(".copy-code")){const pre=e.target.parentElement.querySelector("pre"); await navigator.clipboard.writeText(pre.textContent||""); log("info","bloco copiado")}
 });
 
-chatForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+function updatePlan(steps=[]){planList.innerHTML=""; steps.forEach(s=>{const li=document.createElement("li"); li.textContent=s; planList.appendChild(li)});}
 
-  const text = chatInput.value.trim();
-  if (!text) {
-    return;
-  }
+async function loadSettings(){
+  if(!isTauri()) return;
+  settings = await invoke("get_settings");
+  $("provider").value=settings.provider; $("dockerEndpoint").value=settings.dockerEndpoint; $("cloudEndpoint").value=settings.cloudEndpoint;
+  $("cloudApiKey").value=settings.cloudApiKey||""; $("modelName").value=settings.model; $("temperature").value=settings.temperature;
+  $("topP").value=settings.topP; $("maxTokens").value=settings.maxTokens; $("timeoutSecs").value=settings.timeoutSecs; $("retries").value=settings.retries;
+  setStatus();
+}
 
-  addChatMessage("user", text);
-  chatInput.value = "";
+async function saveSettings(){
+  settings={ provider:$("provider").value, dockerEndpoint:$("dockerEndpoint").value, cloudEndpoint:$("cloudEndpoint").value,
+    cloudApiKey:$("cloudApiKey").value||null, model:$("modelName").value, temperature:Number($("temperature").value||0.2),
+    topP:Number($("topP").value||0.95), maxTokens:Number($("maxTokens").value||512), timeoutSecs:Number($("timeoutSecs").value||180),
+    retries:Number($("retries").value||1), theme:document.body.classList.contains("theme-light")?"light":"dark" };
+  await invoke("save_settings",{settings}); log("info","settings salvos"); setStatus("settings atualizados");
+}
 
-  if (!workspacePath) {
-    const warning = "Selecione um workspace antes de enviar mensagens.";
-    addChatMessage("assistant", warning);
-    appendLog("send blocked: workspace not selected");
-    return;
-  }
+async function restoreWorkspace(){
+  if(!isTauri()) return;
+  const p=await invoke("get_workspace"); if(p){workspacePath=p; workspaceLabel.textContent=`Workspace: ${p}`; sendBtn.disabled=false}
+  const recents=await invoke("list_recent_workspaces"); if(recents?.length) log("info",`recentes: ${recents.slice(0,3).join(" | ")}`);
+}
 
-  if (!isTauriRuntime()) {
-    addChatMessage(
-      "assistant",
-      "Rodando no navegador (fallback). Abra pelo Tauri para respostas do backend real.",
-    );
-    updatePlan([
-      "Confirmar workspace selecionado",
-      "Executar app via Tauri",
-      "Reenviar mensagem",
-    ]);
-    appendLog("send fallback: tauri runtime indisponível");
-    return;
-  }
-
-  appendLog(`action: send_chat_message (${text.length} chars)`);
-
-  try {
-    const response = await invoke("send_chat_message", { message: text });
-    addChatMessage("assistant", response.assistantMessage || "(sem resposta)");
-    updatePlan(response.planSteps || []);
-    if (response.diffText) {
-      diffView.textContent = response.diffText;
-    }
-    appendLog("response received");
-  } catch (error) {
-    addChatMessage("assistant", "Falha ao processar mensagem. Verifique o log.");
-    appendLog(`erro em send_chat_message: ${error}`);
-  }
+$("workspaceBtn").addEventListener("click", async ()=>{
+  try{
+    if(isTauri()){const p=await invoke("select_workspace"); if(p){workspacePath=p; workspaceLabel.textContent=`Workspace: ${p}`; sendBtn.disabled=false; setStatus();}}
+    else {const manual=prompt("Informe o path do workspace"); if(manual){workspacePath=manual; workspaceLabel.textContent=`Workspace: ${manual}`; sendBtn.disabled=false;}}
+  }catch(e){log("error",`workspace: ${e}`)}
 });
 
-detectRuntimeMode();
-validateLlamaSetupOnLoad();
-restoreWorkspaceOnLoad();
+chatForm.addEventListener("submit", async (e)=>{
+  e.preventDefault(); const msg=chatInput.value.trim(); if(!msg) return;
+  addChat("user",msg); chatInput.value=""; preview.textContent="gerando..."; const start=performance.now();
+  try{
+    if(!isTauri()) throw new Error("modo web sem backend");
+    const res=await invoke("send_chat_message",{message:msg});
+    addChat("assistant",res.assistantMessage||"(sem resposta)"); updatePlan(res.planSteps||[]); preview.textContent=res.assistantMessage||"";
+    if(res.diffText) diffView.textContent=res.diffText;
+    setStatus(`latência: ${Math.round(performance.now()-start)}ms`);
+    log("info","response received");
+  }catch(err){addChat("assistant",`Erro: ${err}`); log("error",String(err)); setStatus("erro")}
+});
+
+$("applyDiffBtn").addEventListener("click", async ()=>{ try{const msg=await invoke("apply_diff_text",{diffText:diffView.textContent}); log("info",msg)}catch(e){log("error",String(e))} });
+$("rejectDiffBtn").addEventListener("click", ()=>{diffView.textContent="(sem diff)"; log("warn","diff rejeitado")});
+$("saveSettingsBtn").addEventListener("click", ()=>saveSettings().catch(e=>log("error",String(e))));
+$("copyLogsBtn").addEventListener("click", ()=>navigator.clipboard.writeText(logView.textContent));
+$("themeBtn").addEventListener("click", ()=>document.body.classList.toggle("theme-light"));
+$("logFilter").addEventListener("change", ()=>{});
+
+Array.from(document.querySelectorAll('.tab')).forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active')); $(`tab-${btn.dataset.tab}`).classList.add('active');
+}));
+
+(async()=>{
+  try{ if(isTauri()) { const mode=await invoke("get_app_mode"); $("appTitle").textContent=`Codexu (${mode.milestone})`; }}catch{}
+  await loadSettings().catch(()=>{});
+  await restoreWorkspace().catch(()=>{});
+  if(isTauri()) {
+    const setup=await invoke("validate_llama_setup");
+    setup.details?.forEach((d)=>log(setup.ok?"info":"warn",d));
+    setStatus(`endpoint: ${setup.endpoint}`);
+  } else {
+    log("warn","modo web/fallback ativo");
+  }
+})();

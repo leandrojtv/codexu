@@ -15,3 +15,5 @@ core_agent = { path = "../../../crates/core_agent" }
 tools = { path = "../../../crates/tools" }
 llm_provider = { path = "../../../crates/llm_provider" }
 tokio.workspace = true
+
+keyring = "2"

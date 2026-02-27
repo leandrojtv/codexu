@@ -27,14 +27,10 @@ curl http://127.0.0.1:11434/api/generate \
 ## 4) Configurar o app desktop
 
 ```bash
-export CODEXU_USE_LOCAL_LLM=1
-export CODEXU_LLM_BACKEND=endpoint
-export CODEXU_LLM_ENDPOINT_URL="http://127.0.0.1:11434"
-export CODEXU_LLM_MODEL="codellama:7b-instruct"
-
 cargo run -p codexu_desktop
 ```
 
-## Observação
-- Se abrir o app via GUI (fora do terminal), as variáveis acima podem não ser herdadas.
-- Nesse caso, abra pelo terminal ou configure as variáveis no ambiente do launcher.
+No app, abra **Settings** e configure:
+- Provider = `docker`
+- Docker endpoint = `http://127.0.0.1:11434`
+- Model = `codellama:7b-instruct`

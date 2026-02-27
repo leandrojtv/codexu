@@ -1,9 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use llm_provider::{
-    model_recommendation_for_18gb, EndpointLlmProvider, LlmConfig, LlmProvider,
-    LocalLlamaCppProvider,
-};
+use llm_provider::{CloudLlmProvider, EndpointLlmProvider, LlmConfig, LlmProvider};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -33,30 +30,113 @@ struct AppMode {
     milestone: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    provider: String,
+    docker_endpoint: String,
+    cloud_endpoint: String,
+    cloud_api_key: Option<String>,
+    model: String,
+    temperature: f32,
+    top_p: f32,
+    max_tokens: usize,
+    timeout_secs: u64,
+    retries: u8,
+    theme: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            provider: "docker".to_string(),
+            docker_endpoint: "http://127.0.0.1:11434".to_string(),
+            cloud_endpoint: "https://api.openai.com".to_string(),
+            cloud_api_key: None,
+            model: "codellama:7b-instruct".to_string(),
+            temperature: 0.2,
+            top_p: 0.95,
+            max_tokens: 512,
+            timeout_secs: 180,
+            retries: 1,
+            theme: "dark".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LlamaSetupStatus {
+struct SetupStatus {
     ok: bool,
-    using_local_llm: bool,
-    model_path: String,
-    binary: String,
-    recommendation: String,
+    provider: String,
+    model: String,
+    endpoint: String,
     details: Vec<String>,
 }
 
-fn workspace_config_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+fn app_codexu_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let config_dir = app
         .path_resolver()
         .app_config_dir()
         .ok_or_else(|| "não foi possível resolver app_config_dir".to_string())?;
-    fs::create_dir_all(&config_dir).map_err(|e| format!("falha ao criar config dir: {e}"))?;
-    Ok(config_dir.join("workspace_path.txt"))
+    let codexu = config_dir.join(".codexu");
+    fs::create_dir_all(&codexu).map_err(|e| format!("falha ao criar .codexu: {e}"))?;
+    Ok(codexu)
+}
+
+fn workspace_config_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_codexu_dir(app)?.join("workspace_path.txt"))
+}
+
+fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_codexu_dir(app)?.join("config.json"))
+}
+
+fn keyring_service() -> &'static str {
+    "codexu-desktop"
+}
+
+fn load_cloud_api_key_from_keyring() -> Option<String> {
+    let entry = keyring::Entry::new(keyring_service(), "cloud_api_key").ok()?;
+    entry.get_password().ok()
+}
+
+fn save_cloud_api_key_to_keyring(value: Option<&str>) {
+    if let Ok(entry) = keyring::Entry::new(keyring_service(), "cloud_api_key") {
+        match value {
+            Some(v) if !v.trim().is_empty() => {
+                let _ = entry.set_password(v);
+            }
+            _ => {
+                let _ = entry.delete_password();
+            }
+        }
+    }
+}
+
+fn history_file_for_workspace(workspace: &str) -> PathBuf {
+    PathBuf::from(workspace)
+        .join(".codexu")
+        .join("history.json")
 }
 
 fn persist_workspace(app: &AppHandle, path: &str) -> Result<(), String> {
     let file = workspace_config_file(app)?;
     fs::write(&file, path).map_err(|e| format!("falha ao persistir workspace: {e}"))?;
-    println!("[backend] workspace persisted: {path}");
+    let recent = app_codexu_dir(app)?.join("recent_workspaces.json");
+    let mut list: Vec<String> = if recent.exists() {
+        serde_json::from_str(&fs::read_to_string(&recent).unwrap_or_default()).unwrap_or_default()
+    } else {
+        vec![]
+    };
+    list.retain(|v| v != path);
+    list.insert(0, path.to_string());
+    list.truncate(10);
+    fs::write(
+        recent,
+        serde_json::to_string_pretty(&list).unwrap_or_else(|_| "[]".to_string()),
+    )
+    .map_err(|e| format!("falha ao persistir recentes: {e}"))?;
     Ok(())
 }
 
@@ -65,230 +145,101 @@ fn load_persisted_workspace(app: &AppHandle) -> Result<Option<String>, String> {
     if !file.exists() {
         return Ok(None);
     }
-
-    let raw =
-        fs::read_to_string(&file).map_err(|e| format!("falha ao ler workspace persistido: {e}"))?;
+    let raw = fs::read_to_string(&file).map_err(|e| format!("falha ao ler workspace: {e}"))?;
     let trimmed = raw.trim().to_string();
     if trimmed.is_empty() {
         return Ok(None);
     }
-
     Ok(Some(trimmed))
 }
 
-fn local_llm_enabled() -> bool {
-    match std::env::var("CODEXU_USE_LOCAL_LLM") {
-        Ok(v) if v == "0" => false,
-        _ => true,
+fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    let file = settings_file(app)?;
+    let mut settings = if !file.exists() {
+        AppSettings::default()
+    } else {
+        let raw = fs::read_to_string(file).map_err(|e| format!("falha ao ler config: {e}"))?;
+        serde_json::from_str(&raw).map_err(|e| format!("config inválido: {e}"))?
+    };
+
+    settings.cloud_api_key = load_cloud_api_key_from_keyring();
+    Ok(settings)
+}
+
+fn save_settings_inner(app: &AppHandle, mut settings: AppSettings) -> Result<(), String> {
+    if settings.provider != "docker" && settings.provider != "cloud" {
+        settings.provider = "docker".to_string();
     }
-}
+    if settings.timeout_secs < 30 {
+        settings.timeout_secs = 30;
+    }
 
-fn endpoint_backend_enabled() -> bool {
-    matches!(std::env::var("CODEXU_LLM_BACKEND"), Ok(v) if v.eq_ignore_ascii_case("endpoint"))
-        || std::env::var("CODEXU_LLM_ENDPOINT_URL").is_ok()
-}
+    save_cloud_api_key_to_keyring(settings.cloud_api_key.as_deref());
+    settings.cloud_api_key = None;
 
-fn endpoint_url_from_env() -> String {
-    std::env::var("CODEXU_LLM_ENDPOINT_URL")
-        .ok()
-        .and_then(|v| normalize_env_value(&v))
-        .unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
-}
-
-fn endpoint_model_from_env() -> String {
-    std::env::var("CODEXU_LLM_MODEL")
-        .ok()
-        .and_then(|v| normalize_env_value(&v))
-        .unwrap_or_else(|| "codellama:7b-instruct".to_string())
+    let file = settings_file(app)?;
+    let raw = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(file, raw).map_err(|e| format!("falha ao salvar config: {e}"))
 }
 
 fn derive_plan_steps(message: &str) -> Vec<String> {
     let lower = message.to_lowercase();
     let mut steps = vec!["Analisar objetivo do usuário".to_string()];
-
     if lower.contains("bug") || lower.contains("erro") || lower.contains("falha") {
-        steps.push("Investigar causa raiz no código".to_string());
-        steps.push("Propor correção com diff".to_string());
-    } else if lower.contains("teste") {
-        steps.push("Identificar testes impactados".to_string());
-        steps.push("Executar validações relevantes".to_string());
+        steps.push("Investigar causa raiz".to_string());
+        steps.push("Propor correção".to_string());
     } else {
-        steps.push("Mapear arquivos relevantes no workspace".to_string());
-        steps.push("Propor alterações incrementais".to_string());
+        steps.push("Mapear arquivos relevantes".to_string());
+        steps.push("Gerar sugestão incremental".to_string());
     }
-
-    steps.push("Validar resultado e resumir".to_string());
+    steps.push("Validar e resumir".to_string());
     steps
 }
 
-fn normalize_env_value(raw: &str) -> Option<String> {
-    let mut value = raw.trim().to_string();
-    if value.is_empty() {
-        return None;
+fn build_llm_config(settings: &AppSettings) -> LlmConfig {
+    LlmConfig {
+        endpoint_url: Some(settings.docker_endpoint.clone()),
+        endpoint_model: settings.model.clone(),
+        cloud_url: Some(settings.cloud_endpoint.clone()),
+        cloud_api_key: settings.cloud_api_key.clone(),
+        temperature: settings.temperature,
+        top_p: settings.top_p,
+        max_tokens: settings.max_tokens,
+        ..LlmConfig::default()
     }
+}
 
-    if (value.starts_with('"') && value.ends_with('"'))
-        || (value.starts_with('\'') && value.ends_with('\''))
-    {
-        value = value[1..value.len().saturating_sub(1)].trim().to_string();
+fn append_history(workspace: &str, role: &str, content: &str) {
+    let file = history_file_for_workspace(workspace);
+    if let Some(parent) = file.parent() {
+        let _ = fs::create_dir_all(parent);
     }
-
-    if value.is_empty() {
-        None
+    let mut arr: Vec<serde_json::Value> = if file.exists() {
+        serde_json::from_str(&fs::read_to_string(&file).unwrap_or_default()).unwrap_or_default()
     } else {
-        Some(value)
+        vec![]
+    };
+    arr.push(serde_json::json!({
+        "ts": chrono_like_now(),
+        "role": role,
+        "content": content
+    }));
+    if arr.len() > 300 {
+        arr = arr[arr.len() - 300..].to_vec();
     }
+    let _ = fs::write(
+        file,
+        serde_json::to_string_pretty(&arr).unwrap_or_else(|_| "[]".to_string()),
+    );
 }
 
-fn expand_tilde_path(value: &str) -> PathBuf {
-    if value == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home);
-        }
-    }
-
-    if let Some(rest) = value.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
-    }
-
-    PathBuf::from(value)
-}
-
-fn read_env_path(key: &str) -> Option<PathBuf> {
-    let raw = std::env::var(key).ok()?;
-    let normalized = normalize_env_value(&raw)?;
-    Some(expand_tilde_path(&normalized))
-}
-
-fn resolved_timeout_secs() -> u64 {
-    std::env::var("LLAMA_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|v| *v >= 30)
-        .unwrap_or(180)
-}
-
-fn detect_first_gguf_in_default_models_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let models_dir = PathBuf::from(home).join(".codexu").join("models");
-    let entries = fs::read_dir(models_dir).ok()?;
-
-    let mut ggufs = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.eq_ignore_ascii_case("gguf"))
-                    .unwrap_or(false)
-        })
-        .collect::<Vec<_>>();
-
-    ggufs.sort();
-    ggufs.into_iter().next()
-}
-
-fn resolve_model_path() -> (PathBuf, Vec<String>) {
-    let mut notes = Vec::new();
-
-    if let Some(env_model) = read_env_path("MODEL_GGUF_PATH") {
-        if env_model.exists() {
-            notes.push(format!(
-                "MODEL_GGUF_PATH detectado e válido: {}",
-                env_model.display()
-            ));
-            return (env_model, notes);
-        }
-
-        notes.push(format!(
-            "MODEL_GGUF_PATH detectado, mas arquivo não existe: {}",
-            env_model.display()
-        ));
-    } else {
-        notes.push("MODEL_GGUF_PATH não definido no processo".to_string());
-    }
-
-    if let Some(auto) = detect_first_gguf_in_default_models_dir() {
-        notes.push(format!(
-            "fallback automático: usando GGUF encontrado em ~/.codexu/models -> {}",
-            auto.display()
-        ));
-        return (auto, notes);
-    }
-
-    notes.push("fallback automático não encontrou nenhum .gguf em ~/.codexu/models".to_string());
-    (LlmConfig::default().model_path, notes)
-}
-
-fn candidate_binaries_from_env_path(path: &PathBuf) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    if path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .windows(2)
-        .any(|w| w[0] == "llama.cpp" && w[1] == "llama.cpp")
-    {
-        let deduped = path
-            .to_string_lossy()
-            .replace("/llama.cpp/llama.cpp/", "/llama.cpp/");
-        candidates.push(PathBuf::from(deduped));
-    }
-
-    if let Some(parent) = path.parent() {
-        candidates.push(parent.join("llama-cli"));
-    }
-
-    candidates
-}
-
-fn resolve_binary_path() -> (Option<PathBuf>, Vec<String>) {
-    let mut notes = Vec::new();
-
-    if let Some(env_bin) = read_env_path("LLAMA_CPP_BINARY") {
-        if env_bin.exists() {
-            notes.push(format!(
-                "LLAMA_CPP_BINARY detectado e válido: {}",
-                env_bin.display()
-            ));
-            return (Some(env_bin), notes);
-        }
-
-        notes.push(format!(
-            "LLAMA_CPP_BINARY detectado, mas arquivo não existe: {}",
-            env_bin.display()
-        ));
-
-        for candidate in candidate_binaries_from_env_path(&env_bin) {
-            if candidate.exists() {
-                notes.push(format!(
-                    "fallback automático: binário corrigido detectado -> {}",
-                    candidate.display()
-                ));
-                return (Some(candidate), notes);
-            }
-        }
-
-        notes.push("fallback automático: usando llama-cli via PATH".to_string());
-        return (None, notes);
-    }
-
-    notes.push("LLAMA_CPP_BINARY não definido no processo; usando llama-cli via PATH".to_string());
-    (None, notes)
-}
-
-fn build_llm_config_from_env() -> LlmConfig {
-    let mut cfg = LlmConfig::default();
-    cfg.model_path = resolve_model_path().0;
-    cfg.binary_path = resolve_binary_path().0;
-    cfg.endpoint_url = Some(endpoint_url_from_env());
-    cfg.endpoint_model = endpoint_model_from_env();
-    cfg
+fn chrono_like_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    secs.to_string()
 }
 
 #[tauri::command]
@@ -296,112 +247,72 @@ fn get_app_mode(app: AppHandle) -> AppMode {
     AppMode {
         runtime: "tauri".to_string(),
         version: app.package_info().version.to_string(),
-        milestone: "M4".to_string(),
+        milestone: "M5".to_string(),
     }
 }
 
 #[tauri::command]
-fn validate_llama_setup() -> LlamaSetupStatus {
-    let using_local_llm = local_llm_enabled();
-    let cfg = build_llm_config_from_env();
-    let provider = LocalLlamaCppProvider::new(cfg.clone());
+fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
+    load_settings(&app)
+}
 
-    let binary = cfg
-        .binary_path
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "llama-cli (PATH)".to_string());
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    save_settings_inner(&app, settings)
+}
 
-    let mut details = Vec::new();
+#[tauri::command]
+fn list_recent_workspaces(app: AppHandle) -> Result<Vec<String>, String> {
+    let file = app_codexu_dir(&app)?.join("recent_workspaces.json");
+    if !file.exists() {
+        return Ok(vec![]);
+    }
+    let raw = fs::read_to_string(file).map_err(|e| e.to_string())?;
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
+#[tauri::command]
+fn validate_llama_setup(app: AppHandle) -> SetupStatus {
+    let settings = load_settings(&app).unwrap_or_default();
+    let cfg = build_llm_config(&settings);
+    let mut details = vec![format!(
+        "provider ativo: {} | modelo: {}",
+        settings.provider, settings.model
+    )];
     let mut ok = true;
 
-    for note in resolve_model_path().1 {
-        details.push(note);
-    }
-
-    for note in resolve_binary_path().1 {
-        details.push(note);
-    }
-
-    details.push(format!(
-        "timeout de geração configurado: {}s (LLAMA_TIMEOUT_SECS)",
-        resolved_timeout_secs()
-    ));
-
-    if endpoint_backend_enabled() {
-        details.push(format!(
-            "backend selecionado: endpoint ({})",
-            endpoint_url_from_env()
-        ));
-        details.push(format!("modelo endpoint: {}", endpoint_model_from_env()));
-        let endpoint_provider = EndpointLlmProvider::new(cfg.clone());
-        match endpoint_provider.validate_config() {
-            Ok(()) => details.push("endpoint do modelo acessível".to_string()),
+    if settings.provider == "cloud" {
+        let p = CloudLlmProvider::new(cfg.clone());
+        match p.validate_config() {
+            Ok(()) => details.push("cloud config válido".to_string()),
             Err(e) => {
                 ok = false;
-                details.push(format!("erro no endpoint: {e}"));
+                details.push(format!("erro cloud: {e}"));
             }
         }
-
-        return LlamaSetupStatus {
+        SetupStatus {
             ok,
-            using_local_llm,
-            model_path: cfg.model_path.display().to_string(),
-            binary: cfg
-                .endpoint_url
-                .clone()
-                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
-            recommendation: "Use Docker + modelo codellama e aponte CODEXU_LLM_ENDPOINT_URL"
-                .to_string(),
+            provider: "cloud".to_string(),
+            model: settings.model,
+            endpoint: settings.cloud_endpoint,
             details,
-        };
-    }
-
-    match provider.validate_config() {
-        Ok(()) => details.push(format!(
-            "modelo GGUF válido e encontrado: {}",
-            cfg.model_path.display()
-        )),
-        Err(e) => {
-            ok = false;
-            details.push(format!("erro no modelo: {e}"));
         }
-    }
-
-    let bin_to_check = cfg
-        .binary_path
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "llama-cli".to_string());
-
-    let bin_check = std::process::Command::new(&bin_to_check)
-        .arg("--version")
-        .output();
-
-    match bin_check {
-        Ok(out) if out.status.success() => details.push("binário llama.cpp acessível".to_string()),
-        Ok(_) => {
-            ok = false;
-            details
-                .push("binário llama.cpp encontrado, mas retornou erro em --version".to_string());
+    } else {
+        let p = EndpointLlmProvider::new(cfg.clone());
+        match p.validate_config() {
+            Ok(()) => details.push("endpoint docker acessível".to_string()),
+            Err(e) => {
+                ok = false;
+                details.push(format!("erro endpoint: {e}"));
+            }
         }
-        Err(e) => {
-            ok = false;
-            details.push(format!("não foi possível executar binário llama.cpp: {e}"));
+        SetupStatus {
+            ok,
+            provider: "docker".to_string(),
+            model: settings.model,
+            endpoint: settings.docker_endpoint,
+            details,
         }
-    }
-
-    if !using_local_llm {
-        details.push("CODEXU_USE_LOCAL_LLM=0 (chat em modo mock)".to_string());
-    }
-
-    LlamaSetupStatus {
-        ok,
-        using_local_llm,
-        model_path: cfg.model_path.display().to_string(),
-        binary,
-        recommendation: model_recommendation_for_18gb().to_string(),
-        details,
     }
 }
 
@@ -410,8 +321,6 @@ async fn select_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    println!("[backend] select_workspace called");
-
     let (tx, rx) = oneshot::channel::<Option<String>>();
     let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
 
@@ -435,22 +344,20 @@ async fn select_workspace(
 
     match selected {
         Some(path) => {
-            let metadata =
-                fs::metadata(&path).map_err(|e| format!("falha ao validar workspace: {e}"))?;
-            if !metadata.is_dir() {
+            if !fs::metadata(&path)
+                .map_err(|e| format!("falha ao validar workspace: {e}"))?
+                .is_dir()
+            {
                 return Err("workspace selecionado não é um diretório".into());
             }
-
-            let mut guard = state.workspace.lock().map_err(|e| e.to_string())?;
-            *guard = Some(path.clone());
+            {
+                let mut guard = state.workspace.lock().map_err(|e| e.to_string())?;
+                *guard = Some(path.clone());
+            }
             persist_workspace(&app, &path)?;
-            println!("[backend] workspace selected: {path}");
             Ok(Some(path))
         }
-        None => {
-            println!("[backend] workspace selection canceled");
-            Ok(None)
-        }
+        None => Ok(None),
     }
 }
 
@@ -460,23 +367,74 @@ fn get_workspace(app: AppHandle, state: State<'_, AppState>) -> Result<Option<St
         let guard = state.workspace.lock().map_err(|e| e.to_string())?;
         guard.clone()
     };
-
     if in_memory.is_some() {
         return Ok(in_memory);
     }
-
     let persisted = load_persisted_workspace(&app)?;
     if let Some(path) = persisted.clone() {
         let mut guard = state.workspace.lock().map_err(|e| e.to_string())?;
         *guard = Some(path);
     }
-
     Ok(persisted)
 }
 
 #[tauri::command]
-fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<ChatResponse, String> {
-    println!("[backend] send_chat_message called: {message}");
+fn save_text_in_workspace(
+    state: State<'_, AppState>,
+    relative_path: String,
+    content: String,
+) -> Result<String, String> {
+    let workspace = {
+        let guard = state.workspace.lock().map_err(|e| e.to_string())?;
+        guard.clone()
+    }
+    .ok_or_else(|| "workspace não selecionado".to_string())?;
+
+    let target = PathBuf::from(workspace).join(relative_path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("falha ao criar pasta: {e}"))?;
+    }
+    fs::write(&target, content).map_err(|e| format!("falha ao salvar arquivo: {e}"))?;
+    Ok(target.display().to_string())
+}
+
+#[tauri::command]
+fn apply_diff_text(state: State<'_, AppState>, diff_text: String) -> Result<String, String> {
+    let workspace = {
+        let guard = state.workspace.lock().map_err(|e| e.to_string())?;
+        guard.clone()
+    }
+    .ok_or_else(|| "workspace não selecionado".to_string())?;
+
+    let patch_file = PathBuf::from(&workspace).join(".codexu").join("last.patch");
+    if let Some(parent) = patch_file.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&patch_file, diff_text).map_err(|e| e.to_string())?;
+
+    let out = std::process::Command::new("git")
+        .arg("apply")
+        .arg(patch_file.display().to_string())
+        .current_dir(&workspace)
+        .output()
+        .map_err(|e| format!("falha ao executar git apply: {e}"))?;
+
+    if out.status.success() {
+        Ok("diff aplicado com sucesso".to_string())
+    } else {
+        Err(format!(
+            "falha ao aplicar diff: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ))
+    }
+}
+
+#[tauri::command]
+fn send_chat_message(
+    app: AppHandle,
+    message: String,
+    state: State<'_, AppState>,
+) -> Result<ChatResponse, String> {
     let workspace = {
         let guard = state.workspace.lock().map_err(|e| e.to_string())?;
         guard.clone()
@@ -494,99 +452,38 @@ fn send_chat_message(message: String, state: State<'_, AppState>) -> Result<Chat
         });
     }
 
+    let settings = load_settings(&app)?;
+    let cfg = build_llm_config(&settings);
     let plan_steps = derive_plan_steps(&message);
 
-    let use_local = local_llm_enabled();
-    if use_local {
-        let cfg = build_llm_config_from_env();
-        if endpoint_backend_enabled() {
-            let provider = EndpointLlmProvider::new(cfg.clone());
-            match provider.generate_stream(&message) {
-                Ok(chunks) => {
-                    let assistant_message = chunks.join("\n");
-                    println!("[backend] response generated (endpoint)");
-                    return Ok(ChatResponse {
-                        assistant_message,
-                        plan_steps,
-                        diff_text: None,
-                    });
-                }
-                Err(e) => {
-                    return Ok(ChatResponse {
-                        assistant_message: format!(
-                            "Falha no endpoint de LLM: {e}.
-Verifique CODEXU_LLM_ENDPOINT_URL / CODEXU_LLM_MODEL e se o Docker está ativo.
-Endpoint atual: {} | Modelo: {}",
-                            cfg.endpoint_url
-                                .clone()
-                                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
-                            cfg.endpoint_model
-                        ),
-                        plan_steps,
-                        diff_text: None,
-                    });
-                }
-            }
-        }
+    let result = if settings.provider == "cloud" {
+        CloudLlmProvider::new(cfg).generate_stream(&message)
+    } else {
+        EndpointLlmProvider::new(cfg).generate_stream(&message)
+    };
 
-        let provider = LocalLlamaCppProvider::new(cfg);
-        match provider.generate_stream(&message) {
-            Ok(chunks) => {
-                let assistant_message = chunks.join("\n");
-                println!("[backend] response generated (local llama.cpp)");
-                return Ok(ChatResponse {
-                    assistant_message,
-                    plan_steps,
-                    diff_text: None,
-                });
+    match result {
+        Ok(chunks) => {
+            let answer = chunks.join("\n");
+            if let Some(ws) = workspace {
+                append_history(&ws, "user", &message);
+                append_history(&ws, "assistant", &answer);
             }
-            Err(e) => {
-                println!("[backend] local llama.cpp falhou: {e}");
-                let cfg = build_llm_config_from_env();
-                let binary_hint = cfg
-                    .binary_path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "llama-cli (PATH)".to_string());
-                let err_text = e.to_string().to_lowercase();
-                let timeout_like = err_text.contains("tempo limite")
-                    || err_text.contains("excedeu o tempo")
-                    || err_text.contains("timeout")
-                    || err_text.contains("timed out");
-                let guidance = if timeout_like {
-                    "A geração excedeu o tempo limite. Tente aumentar LLAMA_TIMEOUT_SECS (ex.: 300), reduzir max_tokens/contexto ou usar quantização/modelo mais leve."
-                } else {
-                    "Instale/compile o llama.cpp e garanta que o binário está acessível."
-                };
-                return Ok(ChatResponse {
-                    assistant_message: format!(
-                        "Falha no llama.cpp: {e}.
-{guidance}
-Use o comando de validação de setup e confira MODEL_GGUF_PATH / LLAMA_CPP_BINARY.
-Configuração atual -> MODEL_GGUF_PATH: {} | LLAMA_CPP_BINARY: {}",
-                        cfg.model_path.display(),
-                        binary_hint
-                    ),
-                    plan_steps,
-                    diff_text: None,
-                });
-            }
+            Ok(ChatResponse {
+                assistant_message: answer,
+                plan_steps,
+                diff_text: None,
+            })
         }
+        Err(e) => Ok(ChatResponse {
+            assistant_message: format!(
+                "Falha no provider {}: {e}. Verifique configurações em Settings.",
+                settings.provider
+            ),
+            plan_steps,
+            diff_text: None,
+        }),
     }
-
-    let assistant_message = format!(
-        "[mock] Entendi. Vou trabalhar no pedido: \"{}\".\nLocal LLM está desabilitado (CODEXU_USE_LOCAL_LLM=0).",
-        message
-    );
-    let diff_text =
-        Some("--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n- old\n+ new\n".to_string());
-
-    println!("[backend] response generated (mock)");
-    Ok(ChatResponse {
-        assistant_message,
-        plan_steps,
-        diff_text,
-    })
 }
 
 fn main() {
@@ -596,17 +493,21 @@ fn main() {
             let state = app.state::<AppState>();
             if let Ok(Some(path)) = load_persisted_workspace(&app.app_handle()) {
                 if let Ok(mut guard) = state.workspace.lock() {
-                    *guard = Some(path.clone());
+                    *guard = Some(path);
                 }
-                println!("[backend] workspace restored at startup: {path}");
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_app_mode,
+            get_settings,
+            save_settings,
             validate_llama_setup,
+            list_recent_workspaces,
             select_workspace,
             get_workspace,
+            save_text_in_workspace,
+            apply_diff_text,
             send_chat_message
         ])
         .run(tauri::generate_context!())
