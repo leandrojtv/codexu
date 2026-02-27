@@ -77,3 +77,4 @@ Veja a captura no artefato: `artifacts/ui-redesign.png`.
 - Se o modelo cloud rejeitar parâmetros (ex.: `temperature`), o app tenta automaticamente reenviar sem os parâmetros não suportados.
 
 - Você pode forçar o modo de autenticação via `CODEXU_CLOUD_AUTH_MODE=bearer` ou `CODEXU_CLOUD_AUTH_MODE=api-key`.
+- Para Responses API, o app muda automaticamente entre `messages` e `input` conforme o endpoint/modelo exigir.
