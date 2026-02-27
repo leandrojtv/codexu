@@ -7,87 +7,170 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body class="theme-dark">
-    <header class="topbar">
-      <div>
-        <h1 id="appTitle">Codexu</h1>
-        <div id="workspaceLabel">Nenhum workspace selecionado</div>
+    <div id="app" class="app-shell">
+      <header class="topbar glass">
+        <div class="brand-block">
+          <h1>Codexu</h1>
+          <p id="workspacePill">Workspace: nenhum</p>
+        </div>
+        <div class="topbar-center">
+          <span id="providerPill" class="pill">provider: -</span>
+          <span id="modelPill" class="pill">model: -</span>
+          <span id="latencyPill" class="pill">latência: -</span>
+        </div>
+        <div class="topbar-actions">
+          <button id="workspaceBtn" class="ghost">Selecionar workspace</button>
+          <button id="openBtn" class="ghost">Open</button>
+          <button id="commitBtn" class="ghost">Commit</button>
+          <button id="themeBtn" class="ghost">Tema</button>
+        </div>
+      </header>
+
+      <div class="body-grid">
+        <aside class="sidebar glass" id="sidebar">
+          <button id="newThreadBtn" class="primary w-full">+ New thread</button>
+          <div class="sidebar-search-wrap">
+            <input id="threadSearch" placeholder="Buscar thread..." />
+          </div>
+
+          <details open>
+            <summary>Threads</summary>
+            <div id="threadList" class="stack"></div>
+          </details>
+
+          <details open>
+            <summary>Workspaces recentes</summary>
+            <div id="recentList" class="stack muted"></div>
+          </details>
+
+          <details>
+            <summary>Arquivos</summary>
+            <div id="fileList" class="stack muted"><span>Sem índice de arquivos</span></div>
+          </details>
+
+          <div class="sidebar-footer">
+            <button data-context-tab="settings" class="ghost w-full">Settings</button>
+          </div>
+        </aside>
+
+        <main class="main-column">
+          <section id="emptyState" class="empty-state glass">
+            <h2>Let’s build</h2>
+            <p>Descreva o que quer construir e eu transformo em plano, código e diff aplicável.</p>
+            <div class="suggestions" id="suggestions"></div>
+          </section>
+
+          <section id="chatFeed" class="chat-feed"></section>
+
+          <footer class="composer glass">
+            <div class="composer-tools">
+              <button id="slashBtn" class="ghost">/ comandos</button>
+              <button id="atBtn" class="ghost">@ arquivos</button>
+              <button id="attachBtn" class="ghost">Anexar</button>
+              <button id="micBtn" class="ghost">Mic</button>
+            </div>
+            <form id="chatForm" class="composer-form">
+              <textarea id="chatInput" rows="3" placeholder="Peça algo (⌘/Ctrl + Enter para enviar)"></textarea>
+              <div class="composer-actions">
+                <button id="stopBtn" type="button" class="ghost" disabled>Stop</button>
+                <button id="regenBtn" type="button" class="ghost" disabled>Regenerate</button>
+                <button id="sendBtn" type="submit" class="primary" disabled>Enviar</button>
+              </div>
+            </form>
+          </footer>
+        </main>
+
+        <section class="context-panel glass" id="contextPanel">
+          <div class="context-tabs">
+            <button class="context-tab active" data-context-tab="plan">Plan</button>
+            <button class="context-tab" data-context-tab="diff">Diff</button>
+            <button class="context-tab" data-context-tab="logs">Logs</button>
+            <button class="context-tab" data-context-tab="settings">Settings</button>
+          </div>
+
+          <div class="context-body">
+            <div id="tab-plan" class="context-content active">
+              <ol id="planList" class="plan-list"><li>Aguardando prompt...</li></ol>
+              <div class="scratchpad-wrap">
+                <h4>Scratchpad</h4>
+                <textarea id="scratchpad" rows="8" placeholder="Insert into editor envia snippets para cá"></textarea>
+              </div>
+            </div>
+
+            <div id="tab-diff" class="context-content">
+              <div class="row tight">
+                <select id="diffMode">
+                  <option value="unified">Unified</option>
+                  <option value="side">Side-by-side</option>
+                </select>
+                <button id="applyAllBtn" class="primary">Apply all</button>
+                <button id="rejectAllBtn" class="ghost">Reject all</button>
+              </div>
+              <div class="diff-layout">
+                <aside id="diffFiles" class="diff-files"></aside>
+                <div>
+                  <div id="diffActions" class="diff-actions"></div>
+                  <pre id="diffView" class="codebox">(sem diff)</pre>
+                </div>
+              </div>
+            </div>
+
+            <div id="tab-logs" class="context-content">
+              <div class="row tight">
+                <select id="logLevelFilter">
+                  <option value="all">all</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </select>
+                <input id="logSearch" placeholder="buscar log" />
+                <button id="copyLogsBtn" class="ghost">Copiar</button>
+              </div>
+              <div id="logTimeline" class="log-timeline"></div>
+            </div>
+
+            <div id="tab-settings" class="context-content">
+              <form id="settingsForm" class="settings-grid">
+                <label>Provider</label>
+                <select id="provider"><option value="docker">Docker</option><option value="cloud">Cloud</option></select>
+
+                <label>Docker endpoint</label>
+                <input id="dockerEndpoint" placeholder="http://127.0.0.1:11434" />
+
+                <label>Cloud endpoint</label>
+                <input id="cloudEndpoint" placeholder="https://api.openai.com" />
+
+                <label>Cloud API key</label>
+                <input id="cloudApiKey" type="password" placeholder="sk-..." />
+
+                <label>Model</label>
+                <input id="modelName" placeholder="codellama:7b-instruct" />
+
+                <label>Temperature</label>
+                <input id="temperature" type="number" step="0.1" />
+
+                <label>Top P</label>
+                <input id="topP" type="number" step="0.05" />
+
+                <label>Max tokens</label>
+                <input id="maxTokens" type="number" />
+
+                <label>Timeout (s)</label>
+                <input id="timeoutSecs" type="number" />
+
+                <label>Retries</label>
+                <input id="retries" type="number" />
+
+                <div></div>
+                <button id="saveSettingsBtn" class="primary" type="submit">Salvar settings</button>
+              </form>
+            </div>
+          </div>
+        </section>
       </div>
-      <div class="top-actions">
-        <button id="workspaceBtn">Selecionar workspace</button>
-        <button id="themeBtn">Tema</button>
-      </div>
-    </header>
+    </div>
 
-    <div class="statusbar" id="statusBar">provider: - | latência: - | modelo: - | workspace: -</div>
-
-    <main class="layout" id="layout">
-      <section class="panel chat-col" id="chatPanel">
-        <h2>Chat</h2>
-        <div id="chatLog" class="scroll"></div>
-        <form id="chatForm">
-          <textarea id="chatInput" rows="3" placeholder="Digite sua mensagem..."></textarea>
-          <button id="sendBtn" type="submit" disabled>Enviar</button>
-        </form>
-      </section>
-
-      <section class="panel main-col">
-        <h2>Plan / Steps</h2>
-        <ol id="planList"><li>Aguardando...</li></ol>
-        <h3>Preview</h3>
-        <pre id="preview" class="scroll">(sem preview)</pre>
-      </section>
-
-      <section class="panel side-col">
-        <div class="tabs">
-          <button data-tab="diff" class="tab active">Diff</button>
-          <button data-tab="logs" class="tab">Logs</button>
-          <button data-tab="settings" class="tab">Settings</button>
-        </div>
-
-        <div id="tab-diff" class="tab-content active">
-          <div class="row">
-            <label>Modo:</label>
-            <select id="diffMode">
-              <option value="unified">Unified</option>
-              <option value="side">Side-by-side</option>
-            </select>
-            <button id="applyDiffBtn">Apply</button>
-            <button id="rejectDiffBtn">Reject</button>
-          </div>
-          <pre id="diffView" class="scroll">(sem diff)</pre>
-        </div>
-
-        <div id="tab-logs" class="tab-content">
-          <div class="row">
-            <select id="logFilter">
-              <option value="all">all</option>
-              <option value="info">info</option>
-              <option value="warn">warn</option>
-              <option value="error">error</option>
-            </select>
-            <button id="copyLogsBtn">Copiar logs</button>
-          </div>
-          <pre id="logView" class="scroll">[init] app inicializado</pre>
-        </div>
-
-        <div id="tab-settings" class="tab-content">
-          <div class="settings-grid">
-            <label>Provider</label><select id="provider"><option value="docker">Docker</option><option value="cloud">Cloud</option></select>
-            <label>Docker endpoint</label><input id="dockerEndpoint" />
-            <label>Cloud endpoint</label><input id="cloudEndpoint" />
-            <label>Cloud API key</label><input id="cloudApiKey" type="password" />
-            <label>Model</label><input id="modelName" />
-            <label>Temperature</label><input id="temperature" type="number" step="0.1" />
-            <label>Top P</label><input id="topP" type="number" step="0.05" />
-            <label>Max tokens</label><input id="maxTokens" type="number" />
-            <label>Timeout</label><input id="timeoutSecs" type="number" />
-            <label>Retries</label><input id="retries" type="number" />
-          </div>
-          <button id="saveSettingsBtn">Salvar settings</button>
-        </div>
-      </section>
-    </main>
-
+    <div id="toast" class="toast"></div>
     <script type="module" src="./main.js"></script>
   </body>
 </html>

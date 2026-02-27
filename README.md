@@ -53,3 +53,16 @@ Configuração no app (Settings):
 - Log/Console com filtro e cópia
 - Settings completos de provider/modelo/parâmetros
 - Workspace selector com fallback em modo web
+
+## UI/UX Overhaul (Codex-style)
+
+- App shell clean com topbar discreta, sidebar leve e painel de contexto em abas.
+- Composer grande fixo no rodapé (/, @, anexar, mic, stop, regenerate).
+- Empty state com cards de sugestões rápidas.
+- Chat com markdown, code blocks premium (copy/insert/save/review).
+- Diff panel com lista de arquivos e ações Apply/Reject por arquivo/all.
+- Logs com timeline, filtros por nível e busca.
+
+### Screenshot (after)
+
+Veja a captura no artefato: `artifacts/ui-redesign.png`.
