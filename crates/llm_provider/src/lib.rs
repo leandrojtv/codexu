@@ -174,6 +174,85 @@ impl CloudLlmProvider {
         url.contains("/responses") || url.contains("/openai/responses")
     }
 
+    fn preferred_auth_mode(&self) -> &'static str {
+        match std::env::var("CODEXU_CLOUD_AUTH_MODE") {
+            Ok(v) if v.eq_ignore_ascii_case("api-key") => "api-key",
+            Ok(v) if v.eq_ignore_ascii_case("bearer") => "bearer",
+            _ => "auto",
+        }
+    }
+
+    fn auth_attempt_order(&self) -> Vec<&'static str> {
+        match self.preferred_auth_mode() {
+            "api-key" => vec!["api-key", "bearer"],
+            "bearer" => vec!["bearer", "api-key"],
+            _ if self.is_azure_endpoint() => vec!["bearer", "api-key"],
+            _ => vec!["bearer"],
+        }
+    }
+
+    fn build_cloud_body(
+        &self,
+        prompt: &str,
+        is_responses: bool,
+        include_temperature: bool,
+        include_top_p: bool,
+    ) -> Value {
+        let mut base = if is_responses {
+            serde_json::json!({
+                "model": self.config.endpoint_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_completion_tokens": self.config.max_tokens,
+                "stream": false
+            })
+        } else {
+            serde_json::json!({
+                "model": self.config.endpoint_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": self.config.max_tokens,
+                "stream": false
+            })
+        };
+
+        if let Some(obj) = base.as_object_mut() {
+            if include_temperature {
+                obj.insert(
+                    "temperature".to_string(),
+                    serde_json::json!(self.config.temperature),
+                );
+            }
+            if include_top_p {
+                obj.insert("top_p".to_string(), serde_json::json!(self.config.top_p));
+            }
+        }
+
+        base
+    }
+
+    fn handle_unsupported_parameter_error(
+        &self,
+        error_text: &str,
+        include_temperature: &mut bool,
+        include_top_p: &mut bool,
+    ) -> bool {
+        let lower = error_text.to_lowercase();
+        if !lower.contains("unsupported parameter") {
+            return false;
+        }
+
+        if lower.contains("temperature") && *include_temperature {
+            *include_temperature = false;
+            return true;
+        }
+
+        if lower.contains("top_p") && *include_top_p {
+            *include_top_p = false;
+            return true;
+        }
+
+        false
+    }
+
     fn resolved_cloud_request_url(&self) -> String {
         let raw = self.cloud_url();
         let trimmed = raw.trim().trim_end_matches('/').to_string();
@@ -242,62 +321,73 @@ impl LlmProvider for CloudLlmProvider {
         let url = self.resolved_cloud_request_url();
         let is_responses = self.is_responses_url(&url);
 
-        let body = if is_responses {
-            serde_json::json!({
-                "model": self.config.endpoint_model,
-                "input": prompt,
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "max_output_tokens": self.config.max_tokens,
-                "stream": false
-            })
-        } else {
-            serde_json::json!({
-                "model": self.config.endpoint_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "max_tokens": self.config.max_tokens,
-                "stream": false
-            })
-        };
-
         let client = Client::builder()
             .timeout(Duration::from_secs(request_timeout_secs()))
             .build()
             .context("falha ao criar client HTTP")?;
 
-        let req = client.post(&url).json(&body);
-        let req = if self.is_azure_endpoint() {
-            req.header(
-                "api-key",
-                self.config.cloud_api_key.clone().unwrap_or_default(),
-            )
-        } else {
-            req.bearer_auth(self.config.cloud_api_key.clone().unwrap_or_default())
-        };
+        let mut include_temperature = true;
+        let mut include_top_p = true;
+        let mut last_error = String::new();
 
-        let resp = req.send().context("falha ao chamar endpoint cloud")?;
+        for _ in 0..4 {
+            let body =
+                self.build_cloud_body(prompt, is_responses, include_temperature, include_top_p);
+            let mut payload: Option<Value> = None;
 
-        if !resp.status().is_success() {
-            let code = resp.status();
-            let txt = resp.text().unwrap_or_default();
-            bail!("cloud retornou erro HTTP {code}: {txt}");
+            for mode in self.auth_attempt_order() {
+                let req = client.post(&url).json(&body);
+                let req = match mode {
+                    "api-key" => req.header(
+                        "api-key",
+                        self.config.cloud_api_key.clone().unwrap_or_default(),
+                    ),
+                    _ => req.bearer_auth(self.config.cloud_api_key.clone().unwrap_or_default()),
+                };
+
+                let resp = req.send().context("falha ao chamar endpoint cloud")?;
+                if resp.status().is_success() {
+                    payload = Some(resp.json().context("resposta JSON inválida do cloud")?);
+                    break;
+                }
+
+                let code = resp.status();
+                let txt = resp.text().unwrap_or_default();
+                last_error = format!("auth={mode} -> HTTP {code}: {txt}");
+
+                if code.as_u16() == 400
+                    && self.handle_unsupported_parameter_error(
+                        &txt,
+                        &mut include_temperature,
+                        &mut include_top_p,
+                    )
+                {
+                    payload = None;
+                    break;
+                }
+
+                if !matches!(code.as_u16(), 401 | 403) {
+                    payload = None;
+                    break;
+                }
+            }
+
+            if let Some(payload) = payload {
+                let text = self.extract_text_from_cloud_payload(&payload, &url);
+                let sanitized = sanitize_model_output(&text);
+                if sanitized.trim().is_empty() {
+                    return Ok(vec!["[llm-cloud] resposta vazia".to_string()]);
+                }
+
+                return Ok(sanitized
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| l.to_string())
+                    .collect());
+            }
         }
 
-        let payload: Value = resp.json().context("resposta JSON inválida do cloud")?;
-        let text = self.extract_text_from_cloud_payload(&payload, &url);
-
-        let sanitized = sanitize_model_output(&text);
-        if sanitized.trim().is_empty() {
-            return Ok(vec!["[llm-cloud] resposta vazia".to_string()]);
-        }
-
-        Ok(sanitized
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| l.to_string())
-            .collect())
+        bail!("cloud retornou erro: {last_error}")
     }
 }
 

@@ -72,4 +72,8 @@ Veja a captura no artefato: `artifacts/ui-redesign.png`.
 
 - OpenAI base URL: `https://api.openai.com` (o app adiciona `/v1/chat/completions`).
 - Azure endpoint completo também é suportado, por exemplo: `https://SEU-RECURSO.openai.azure.com/openai/responses?api-version=2025-04-01-preview`.
-- Em Azure, a autenticação usa header `api-key` automaticamente.
+- Em Azure, o app tenta `Authorization: Bearer` primeiro e faz fallback para `api-key` quando necessário.
+
+- Se o modelo cloud rejeitar parâmetros (ex.: `temperature`), o app tenta automaticamente reenviar sem os parâmetros não suportados.
+
+- Você pode forçar o modo de autenticação via `CODEXU_CLOUD_AUTH_MODE=bearer` ou `CODEXU_CLOUD_AUTH_MODE=api-key`.
