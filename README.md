@@ -78,3 +78,4 @@ Veja a captura no artefato: `artifacts/ui-redesign.png`.
 
 - Você pode forçar o modo de autenticação via `CODEXU_CLOUD_AUTH_MODE=bearer` ou `CODEXU_CLOUD_AUTH_MODE=api-key`.
 - Para Responses API, o app muda automaticamente entre `messages` e `input` conforme o endpoint/modelo exigir.
+- Em Responses API, o app também alterna automaticamente entre `max_completion_tokens` e `max_output_tokens` conforme compatibilidade do endpoint/modelo.

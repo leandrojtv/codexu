@@ -198,23 +198,36 @@ impl CloudLlmProvider {
         include_temperature: bool,
         include_top_p: bool,
         responses_use_input: bool,
+        responses_use_max_output_tokens: bool,
     ) -> Value {
         let mut base = if is_responses {
-            if responses_use_input {
-                serde_json::json!({
-                    "model": self.config.endpoint_model,
-                    "input": prompt,
-                    "max_completion_tokens": self.config.max_tokens,
-                    "stream": false
-                })
-            } else {
-                serde_json::json!({
-                    "model": self.config.endpoint_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_completion_tokens": self.config.max_tokens,
-                    "stream": false
-                })
+            let mut obj = serde_json::json!({
+                "model": self.config.endpoint_model,
+                "stream": false
+            });
+
+            if let Some(map) = obj.as_object_mut() {
+                if responses_use_input {
+                    map.insert("input".to_string(), serde_json::json!(prompt));
+                } else {
+                    map.insert(
+                        "messages".to_string(),
+                        serde_json::json!([{"role": "user", "content": prompt}]),
+                    );
+                }
+
+                let max_key = if responses_use_max_output_tokens {
+                    "max_output_tokens"
+                } else {
+                    "max_completion_tokens"
+                };
+                map.insert(
+                    max_key.to_string(),
+                    serde_json::json!(self.config.max_tokens),
+                );
             }
+
+            obj
         } else {
             serde_json::json!({
                 "model": self.config.endpoint_model,
@@ -245,6 +258,7 @@ impl CloudLlmProvider {
         include_temperature: &mut bool,
         include_top_p: &mut bool,
         responses_use_input: &mut bool,
+        responses_use_max_output_tokens: &mut bool,
     ) -> bool {
         let lower = error_text.to_lowercase();
         if !lower.contains("unsupported parameter") {
@@ -268,6 +282,17 @@ impl CloudLlmProvider {
 
         if lower.contains("input") && lower.contains("unsupported parameter") {
             *responses_use_input = false;
+            return true;
+        }
+
+        if lower.contains("max_completion_tokens") && lower.contains("moved to 'max_output_tokens'")
+        {
+            *responses_use_max_output_tokens = true;
+            return true;
+        }
+
+        if lower.contains("max_output_tokens") && lower.contains("unsupported parameter") {
+            *responses_use_max_output_tokens = false;
             return true;
         }
 
@@ -350,15 +375,17 @@ impl LlmProvider for CloudLlmProvider {
         let mut include_temperature = true;
         let mut include_top_p = true;
         let mut responses_use_input = true;
+        let mut responses_use_max_output_tokens = false;
         let mut last_error = String::new();
 
-        for _ in 0..6 {
+        for _ in 0..8 {
             let body = self.build_cloud_body(
                 prompt,
                 is_responses,
                 include_temperature,
                 include_top_p,
                 responses_use_input,
+                responses_use_max_output_tokens,
             );
             let mut payload: Option<Value> = None;
 
@@ -388,6 +415,7 @@ impl LlmProvider for CloudLlmProvider {
                         &mut include_temperature,
                         &mut include_top_p,
                         &mut responses_use_input,
+                        &mut responses_use_max_output_tokens,
                     )
                 {
                     payload = None;
