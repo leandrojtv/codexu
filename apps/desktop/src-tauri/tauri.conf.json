@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/1",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../ui",
+    "distDir": "../ui",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "Codexu",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "dialog": {
+        "open": true
+      },
+      "path": {
+        "all": true
+      },
+      "fs": {
+        "readDir": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "targets": [
+        "app"
+      ],
+      "identifier": "com.codexu.desktop",
+      "icon": [
+        "icons/icon.png"
+      ]
+    },
+    "windows": [
+      {
+        "title": "Codexu",
+        "width": 1200,
+        "height": 800,
+        "resizable": true
+      }
+    ]
+  }
+}
