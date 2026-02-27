@@ -35,6 +35,8 @@ const ui = {
   newThreadBtn: $("newThreadBtn"),
   themeBtn: $("themeBtn"),
   toast: $("toast"),
+  attachBtn: $("attachBtn"),
+  attachInput: $("attachInput"),
 };
 
 const state = {
@@ -523,6 +525,25 @@ function renderRecents() {
   }
 }
 
+
+async function readAttachmentText(file) {
+  if (!file) return "";
+  const maxBytes = 200 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error("Arquivo muito grande (limite: 200KB)");
+  }
+  return file.text();
+}
+
+async function appendAttachmentToPrompt(file) {
+  const content = await readAttachmentText(file);
+  const header = `\n\n[anexo: ${file.name}]\n`;
+  ui.chatInput.value = `${ui.chatInput.value}${header}${content}`.trim();
+  ui.chatInput.focus();
+  appendLog("info", "attachment.loaded", `${file.name} (${file.size} bytes)`);
+  toast(`Anexo inserido: ${file.name}`);
+}
+
 function bindEvents() {
   ui.threadSearch.addEventListener("input", renderThreads);
   ui.logLevelFilter.addEventListener("change", renderLogs);
@@ -557,6 +578,23 @@ function bindEvents() {
       }
     } catch (err) {
       appendLog("error", "workspace.error", String(err));
+    }
+  });
+
+  ui.attachBtn.addEventListener("click", () => {
+    ui.attachInput.click();
+  });
+
+  ui.attachInput.addEventListener("change", async () => {
+    const [file] = ui.attachInput.files || [];
+    ui.attachInput.value = "";
+    if (!file) return;
+
+    try {
+      await appendAttachmentToPrompt(file);
+    } catch (err) {
+      appendLog("error", "attachment.error", String(err));
+      toast("Falha ao ler anexo");
     }
   });
 

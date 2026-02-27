@@ -25,6 +25,8 @@
 * { box-sizing: border-box; }
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   background: radial-gradient(circle at 10% -10%, rgba(111, 122, 255, 0.18), transparent 30%),
     radial-gradient(circle at 90% 0%, rgba(72, 190, 255, 0.14), transparent 28%),
@@ -38,6 +40,10 @@ h1, h2, h3, h4, p { margin: 0; }
 .app-shell {
   width: min(1800px, 96vw);
   margin: 18px auto;
+  height: calc(100vh - 36px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
 }
 
 .glass {
@@ -76,18 +82,23 @@ h1, h2, h3, h4, p { margin: 0; }
   display: grid;
   grid-template-columns: 260px minmax(680px, 1fr) 420px;
   gap: 12px;
-  min-height: calc(100vh - 130px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar, .context-panel {
   border-radius: var(--radius-xl);
   padding: 12px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: auto;
+  min-height: 0;
 }
 
 details {
@@ -118,6 +129,8 @@ summary {
   grid-template-rows: auto 1fr auto;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .empty-state {
@@ -148,7 +161,7 @@ summary {
 .chat-feed {
   overflow: auto;
   padding: 0 8px;
-  min-height: 200px;
+  min-height: 0;
 }
 
 .msg {
@@ -324,4 +337,10 @@ button.ghost { background: transparent; }
   .main-column { order: 1; }
   .context-tabs { overflow: auto; white-space: nowrap; }
   .diff-layout { grid-template-columns: 1fr; }
+}
+
+#recentList button {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
