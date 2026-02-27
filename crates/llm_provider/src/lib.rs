@@ -166,6 +166,61 @@ impl CloudLlmProvider {
             .unwrap_or_else(|| "https://api.openai.com".to_string())
     }
 
+    fn is_azure_endpoint(&self) -> bool {
+        self.cloud_url().contains("openai.azure.com")
+    }
+
+    fn is_responses_url(&self, url: &str) -> bool {
+        url.contains("/responses") || url.contains("/openai/responses")
+    }
+
+    fn resolved_cloud_request_url(&self) -> String {
+        let raw = self.cloud_url();
+        let trimmed = raw.trim().trim_end_matches('/').to_string();
+
+        if trimmed.contains("/openai/") || trimmed.contains("/v1/") || trimmed.contains("?") {
+            return trimmed;
+        }
+
+        format!("{trimmed}/v1/chat/completions")
+    }
+
+    fn extract_text_from_cloud_payload(&self, payload: &Value, request_url: &str) -> String {
+        if self.is_responses_url(request_url) {
+            if let Some(out) = payload.get("output_text").and_then(|v| v.as_str()) {
+                return out.to_string();
+            }
+
+            if let Some(items) = payload.get("output").and_then(|v| v.as_array()) {
+                let mut collected = String::new();
+                for item in items {
+                    if let Some(contents) = item.get("content").and_then(|v| v.as_array()) {
+                        for content in contents {
+                            if let Some(text) = content.get("text").and_then(|v| v.as_str()) {
+                                if !collected.is_empty() {
+                                    collected.push('\n');
+                                }
+                                collected.push_str(text);
+                            }
+                        }
+                    }
+                }
+                if !collected.trim().is_empty() {
+                    return collected;
+                }
+            }
+        }
+
+        payload
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    }
+
     pub fn validate_config(&self) -> Result<()> {
         if self
             .config
@@ -184,31 +239,45 @@ impl CloudLlmProvider {
 impl LlmProvider for CloudLlmProvider {
     fn generate_stream(&self, prompt: &str) -> Result<Vec<String>> {
         self.validate_config()?;
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.cloud_url().trim_end_matches('/')
-        );
+        let url = self.resolved_cloud_request_url();
+        let is_responses = self.is_responses_url(&url);
 
-        let body = serde_json::json!({
-            "model": self.config.endpoint_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
-            "max_tokens": self.config.max_tokens,
-            "stream": false
-        });
+        let body = if is_responses {
+            serde_json::json!({
+                "model": self.config.endpoint_model,
+                "input": prompt,
+                "temperature": self.config.temperature,
+                "top_p": self.config.top_p,
+                "max_output_tokens": self.config.max_tokens,
+                "stream": false
+            })
+        } else {
+            serde_json::json!({
+                "model": self.config.endpoint_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": self.config.temperature,
+                "top_p": self.config.top_p,
+                "max_tokens": self.config.max_tokens,
+                "stream": false
+            })
+        };
 
         let client = Client::builder()
             .timeout(Duration::from_secs(request_timeout_secs()))
             .build()
             .context("falha ao criar client HTTP")?;
 
-        let resp = client
-            .post(url)
-            .bearer_auth(self.config.cloud_api_key.clone().unwrap_or_default())
-            .json(&body)
-            .send()
-            .context("falha ao chamar endpoint cloud")?;
+        let req = client.post(&url).json(&body);
+        let req = if self.is_azure_endpoint() {
+            req.header(
+                "api-key",
+                self.config.cloud_api_key.clone().unwrap_or_default(),
+            )
+        } else {
+            req.bearer_auth(self.config.cloud_api_key.clone().unwrap_or_default())
+        };
+
+        let resp = req.send().context("falha ao chamar endpoint cloud")?;
 
         if !resp.status().is_success() {
             let code = resp.status();
@@ -217,14 +286,7 @@ impl LlmProvider for CloudLlmProvider {
         }
 
         let payload: Value = resp.json().context("resposta JSON inválida do cloud")?;
-        let text = payload
-            .get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
+        let text = self.extract_text_from_cloud_payload(&payload, &url);
 
         let sanitized = sanitize_model_output(&text);
         if sanitized.trim().is_empty() {

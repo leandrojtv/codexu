@@ -66,3 +66,10 @@ Configuração no app (Settings):
 ### Screenshot (after)
 
 Veja a captura no artefato: `artifacts/ui-redesign.png`.
+
+
+### Cloud endpoint (OpenAI / Azure)
+
+- OpenAI base URL: `https://api.openai.com` (o app adiciona `/v1/chat/completions`).
+- Azure endpoint completo também é suportado, por exemplo: `https://SEU-RECURSO.openai.azure.com/openai/responses?api-version=2025-04-01-preview`.
+- Em Azure, a autenticação usa header `api-key` automaticamente.
